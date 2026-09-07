@@ -2,6 +2,9 @@
 #define KSYNC_H_99
 #ifndef _WIN32
 #include <pthread.h>
+#include <errno.h>
+#include <sched.h>
+#include <sys/time.h>
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -55,12 +58,9 @@ INLINE void kcond_wait(kcond *cond)
 	WaitForSingleObject(cond, INFINITE);
 #else
 	kmutex_lock(&cond->mutex);
-	if (cond->ev) {
-		cond->ev = false;
-		kmutex_unlock(&cond->mutex);
-		return;
+	while (!cond->ev) {
+		pthread_cond_wait(&cond->cond, &cond->mutex);
 	}
-	pthread_cond_wait(&cond->cond, &cond->mutex);
 	if (cond->auto_reset) {
 		cond->ev = false;
 	}
@@ -72,20 +72,31 @@ INLINE bool kcond_try_wait(kcond* cond, int msec) {
 	return WaitForSingleObject(cond, msec) == WAIT_OBJECT_0;
 #else
 	kmutex_lock(&cond->mutex);
-	if (cond->ev) {
+	int ret = 0;
+	if (!cond->ev && msec < 0) {
+		while (!cond->ev) {
+			pthread_cond_wait(&cond->cond, &cond->mutex);
+		}
+	} else if (!cond->ev && msec > 0) {
+		struct timeval now;
+		struct timespec deadline;
+		gettimeofday(&now, NULL);
+		deadline.tv_sec = now.tv_sec + msec / 1000;
+		deadline.tv_nsec = now.tv_usec * 1000 + (msec % 1000) * 1000000;
+		if (deadline.tv_nsec >= 1000000000) {
+			deadline.tv_sec++;
+			deadline.tv_nsec -= 1000000000;
+		}
+		while (!cond->ev && ret == 0) {
+			ret = pthread_cond_timedwait(&cond->cond, &cond->mutex, &deadline);
+		}
+	}
+	bool signaled = cond->ev;
+	if (signaled && cond->auto_reset) {
 		cond->ev = false;
-		kmutex_unlock(&cond->mutex);
-		return true;
 	}
 	kmutex_unlock(&cond->mutex);
-	return false;
-#if 0
-	pthread_cond_wait(&cond->cond, &cond->mutex);
-	if (cond->auto_reset) {
-		cond->ev = false;
-	}
-	kmutex_unlock(&cond->mutex);
-#endif
+	return signaled;
 #endif
 }
 INLINE void kcond_notice(kcond *cond)
@@ -117,8 +128,12 @@ INLINE void kgl_pause()
 {
 #ifdef _WIN32
 	YieldProcessor();
+#elif defined(__i386__) || defined(__x86_64__)
+	__asm__ __volatile__("pause");
+#elif defined(__arm__) || defined(__aarch64__)
+	__asm__ __volatile__("yield");
 #else
-	__asm__("pause");
+	sched_yield();
 #endif
 }
 

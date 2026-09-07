@@ -151,7 +151,15 @@ INLINE int ksocket_addr_compare(const sockaddr_i *a, const sockaddr_i *b)
 	}
 	if (a->v4.sin_family == PF_INET)
 #endif
-	return (int)a->v4.sin_addr.s_addr - (int)b->v4.sin_addr.s_addr;
+	{
+		if (a->v4.sin_addr.s_addr < b->v4.sin_addr.s_addr) {
+			return -1;
+		}
+		if (a->v4.sin_addr.s_addr > b->v4.sin_addr.s_addr) {
+			return 1;
+		}
+		return 0;
+	}
 #ifdef KSOCKET_IPV6
 	return memcmp(&a->v6.sin6_addr, &b->v6.sin6_addr, sizeof(a->v6.sin6_addr));
 #endif
@@ -191,7 +199,13 @@ INLINE int ksocket_ipaddr_compare(ip_addr *a, ip_addr *b)
 		return ret;
 	}
 	if (a->sin_family == PF_INET) {
-		return (int)a->addr32[0] - (int)b->addr32[0];
+		if (a->addr32[0] < b->addr32[0]) {
+			return -1;
+		}
+		if (a->addr32[0] > b->addr32[0]) {
+			return 1;
+		}
+		return 0;
 	}
 	return memcmp(a->addr8, b->addr8, sizeof(a->addr8));
 #else
@@ -267,7 +281,7 @@ INLINE bool ksocket_is_block(SOCKET sockfd) {
 	return false;
 #else
 	int flags = fcntl(sockfd, F_GETFL, 0);
-	return (flags & O_NONBLOCK) > 0;
+	return flags >= 0 && (flags & O_NONBLOCK) == 0;
 #endif
 }
 void ksocket_startup();

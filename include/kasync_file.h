@@ -65,7 +65,7 @@ INLINE void kasync_file_bind_opaque(kasync_file* fp, KOPAQUE data) {
 INLINE KOPAQUE kasync_file_get_opaque(kasync_file* fp) {
 	return fp->st.data;
 }
-#if defined(O_DIRECT) && defined(LINUX_EPOLL)
+#ifdef LINUX_EPOLL
 INLINE int64_t _kasync_file_get_adjust_offset(kasync_file *fp) {
 	return fp->st.offset - (int16_t)fp->st.direct_io_offset;
 }

@@ -66,7 +66,7 @@ static kev_result result_aio_event(KOPAQUE data, void *arg,int got)
 	kepoll_aio_selectable *aio_st = (kepoll_aio_selectable *)arg;
 	kassert(got==0);
 	uint64_t finished_aio;
-	int i,j,r;
+	int j,r;
 	struct timespec tms;
 	if (read(aio_st->st.fd, &finished_aio, sizeof(finished_aio)) != sizeof(finished_aio)) {
 	   perror("read");
@@ -87,8 +87,14 @@ static kev_result result_aio_event(KOPAQUE data, void *arg,int got)
 						   kasync_file *ctx = (kasync_file *)events[j].data;
 						   aio_result(ctx,(struct iocb *)events[j].obj, events[j].res, events[j].res2);
 				   }
-				   i += r;
 				   finished_aio -= r;
+		   } else if (r < 0 && errno == EINTR) {
+			   continue;
+		   } else {
+			   if (r < 0) {
+				   klog(KLOG_ERR, "io_getevents failed, errno=%d %s\n", errno, strerror(errno));
+			   }
+			   break;
 		   }
 	}
 	return kev_ok;
@@ -149,6 +155,7 @@ static void epoll_selector_init(kselector *selector)
 	}
 
 	//init aio_st
+	ctx->aio_st.st.fd = -1;
 	ctx->aio_st.st.base.selector = selector;
 	KBIT_SET(ctx->aio_st.st.base.st_flags,STF_READ|STF_REV);
 	ctx->aio_st.st.e[OP_READ].arg = &ctx->aio_st;
@@ -169,8 +176,24 @@ static void epoll_selector_init(kselector *selector)
 static void epoll_selector_destroy(kselector *selector)
 {
 	kepoll_selector *es = (kepoll_selector *)selector->ctx;
+	if (es->aio_st.aio_ctx) {
+		io_destroy(es->aio_st.aio_ctx);
+	}
+	if (es->aio_st.st.fd >= 0) {
+		close(es->aio_st.st.fd);
+	}
 	close(es->kdpfd);
 	close(es->notice_st.st.fd);
+	kmutex_lock(&es->notice_st.lock);
+	kselector_notice *notice = es->notice_st.head;
+	es->notice_st.head = NULL;
+	kmutex_unlock(&es->notice_st.lock);
+	while (notice) {
+		kselector_notice *next = notice->next;
+		xfree(notice);
+		notice = next;
+	}
+	kmutex_destroy(&es->notice_st.lock);
 	xfree(es);
 }
 
@@ -375,16 +398,17 @@ static int epoll_selector_select(kselector *selector,int tmo) {
 #ifndef NDEBUG
 		//klog(KLOG_DEBUG,"event happened st=[%p] ev=[%d]\n",st,ev);
 #endif
-		//if (KBIT_TEST(ev, EPOLLHUP | EPOLLERR)) {
-		//	KBIT_SET(st->base.st_flags, STF_ERR);
-		//}
+		bool error_event = KBIT_TEST(ev, EPOLLHUP | EPOLLERR) != 0;
+		if (error_event) {
+			KBIT_SET(st->base.st_flags, STF_ERR);
+		}
 #ifdef EPOLLRDHUP
 		if (KBIT_TEST(ev,EPOLLRDHUP|EPOLLIN)==(EPOLLRDHUP|EPOLLIN)) {
 			KBIT_SET(st->base.st_flags, STF_ERR);
 		}
 #endif
 		//write ready
-		if (KBIT_TEST(ev,EPOLLRDHUP)) {
+		if (error_event || KBIT_TEST(ev,EPOLLRDHUP)) {
 			KBIT_SET(st->base.st_flags,STF_WREADY);
 			if (KBIT_TEST(st->base.st_flags,STF_WRITE|STF_RDHUP)) {
 				kselector_add_list(selector,st,KGL_LIST_READY);
@@ -398,7 +422,7 @@ static int epoll_selector_select(kselector *selector,int tmo) {
 			}
 		}
 		//read ready
-		if (KBIT_TEST(ev,EPOLLIN|EPOLLPRI|EPOLLHUP)) {
+		if (error_event || KBIT_TEST(ev,EPOLLIN|EPOLLPRI)) {
 			KBIT_SET(st->base.st_flags,STF_RREADY);
 			if (KBIT_TEST(st->base.st_flags,STF_READ) && !in_ready_list) {
 				kselector_add_list(selector,st,KGL_LIST_READY);

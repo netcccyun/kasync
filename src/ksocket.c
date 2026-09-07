@@ -240,9 +240,14 @@ SOCKET ksocket_listen(const sockaddr_i* addr, int flag) {
 }
 #ifdef KSOCKET_UNIX	
 int ksocket_unix_addr(const char* path, struct sockaddr_un* addr) {
+	size_t path_len = strlen(path);
+	if (path_len >= sizeof(addr->sun_path)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
 	memset(addr, 0, sizeof(struct sockaddr_un));
 	addr->sun_family = AF_UNIX;
-	strncpy(addr->sun_path, path, sizeof(addr->sun_path));
+	memcpy(addr->sun_path, path, path_len + 1);
 	return 0;
 }
 #endif
@@ -268,15 +273,15 @@ SOCKET ksocket_accept(SOCKET s, sockaddr_i* addr, bool no_block) {
 #endif
 }
 void ksocket_addrinfo_sockaddr(struct addrinfo* ai, uint16_t port, sockaddr_i* addr) {
-	addr->v4.sin_family = ai->ai_family;
-#ifdef KSOCKET_IPV6
-	if (ai->ai_family == PF_INET6) {
-		((struct sockaddr_in6*)ai->ai_addr)->sin6_port = htons(port);
-	} else
-#endif
-		((struct sockaddr_in*)ai->ai_addr)->sin_port = htons(port);
+	memset(addr, 0, sizeof(*addr));
 	int copy_len = KGL_MIN((socklen_t)ai->ai_addrlen, sizeof(sockaddr_i));
 	kgl_memcpy(addr, ai->ai_addr, copy_len);
+#ifdef KSOCKET_IPV6
+	if (ai->ai_family == PF_INET6) {
+		addr->v6.sin6_port = htons(port);
+	} else
+#endif
+		addr->v4.sin_port = htons(port);
 }
 bool ksocket_getaddr(const char* host, uint16_t port, int ai_family, int ai_flags, sockaddr_i* addr) {
 	struct addrinfo* res;
@@ -354,13 +359,30 @@ SOCKET ksocket_connect(const sockaddr_i* addr, const sockaddr_i* bind_addr, int 
 		ksocket_close(sockfd);
 		return INVALID_SOCKET;
 	}
-	if (connect(sockfd, (struct sockaddr*)addr, ksocket_addr_len(addr)) < 0) {
-		ksocket_close(sockfd);
-		return INVALID_SOCKET;
+	if (tmo > 0) {
+		ksocket_no_block(sockfd);
 	}
-	if (!wait_socket_event(sockfd, true, tmo)) {
-		ksocket_close(sockfd);
-		return INVALID_SOCKET;
+	int connect_result = connect(sockfd, (struct sockaddr*)addr, ksocket_addr_len(addr));
+	if (connect_result < 0) {
+#ifdef _WIN32
+		int connect_error = WSAGetLastError();
+		bool pending = connect_error == WSAEWOULDBLOCK || connect_error == WSAEINPROGRESS || connect_error == WSAEINVAL;
+#else
+		bool pending = errno == EINPROGRESS || errno == EWOULDBLOCK;
+#endif
+		if (tmo <= 0 || !pending || !wait_socket_event(sockfd, true, tmo)) {
+			ksocket_close(sockfd);
+			return INVALID_SOCKET;
+		}
+		int socket_error = 0;
+		socklen_t error_len = sizeof(socket_error);
+		if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (char*)&socket_error, &error_len) != 0 || socket_error != 0) {
+			ksocket_close(sockfd);
+			return INVALID_SOCKET;
+		}
+	}
+	if (tmo > 0) {
+		ksocket_block(sockfd);
 	}
 	return sockfd;
 }

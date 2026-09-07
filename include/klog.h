@@ -19,7 +19,7 @@ INLINE void vklog(int level, const char* fmt, va_list ap) {
 		vprintf(fmt, ap);
 	}
 }
-INLINE void klog(int level, const char* fmt, ...) {
+static inline void klog(int level, const char* fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	vklog(level, fmt, ap);

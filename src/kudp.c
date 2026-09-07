@@ -78,11 +78,22 @@ kconnection* kudp_new2(int flags, kselector* st)
 		return NULL;
 	}
 	if (KBIT_TEST(flags, KSOCKET_IP_PKTINFO)) {
-#ifdef IP_SENDSRCADDR
-		setsockopt(uc->st.fd, IPPROTO_IP, IP_SENDSRCADDR, (const char*)&n, sizeof(int));
-#else
-		setsockopt(uc->st.fd, IPPROTO_IP, IP_PKTINFO, (const char*)&n, sizeof(int));
+#ifdef KSOCKET_IPV6
+		if (domain == PF_INET6) {
+#ifdef IPV6_RECVPKTINFO
+			setsockopt(uc->st.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, (const char*)&n, sizeof(int));
+#elif defined(IPV6_PKTINFO)
+			setsockopt(uc->st.fd, IPPROTO_IPV6, IPV6_PKTINFO, (const char*)&n, sizeof(int));
 #endif
+		} else
+#endif
+		{
+#ifdef IP_SENDSRCADDR
+			setsockopt(uc->st.fd, IPPROTO_IP, IP_SENDSRCADDR, (const char*)&n, sizeof(int));
+#else
+			setsockopt(uc->st.fd, IPPROTO_IP, IP_PKTINFO, (const char*)&n, sizeof(int));
+#endif
+		}
 		uc->udp = xmemory_new(kudp_extend);
 	}
 	selectable_bind(&uc->st, st);

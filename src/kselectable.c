@@ -170,9 +170,9 @@ int selectable_recvmsg(kselectable* st)
 	msg.msg_namelen = ksocket_addr_len((sockaddr_i *)msg.msg_name);
 	msg.msg_iov = (struct iovec *)st->e[OP_READ].buffer->iov_base;
 	msg.msg_iovlen = st->e[OP_READ].buffer->iov_len;
-	msg.msg_control = c->udp->pktinfo;
 	if (c->udp) {
 		memset(c->udp, 0, sizeof(kudp_extend));
+		msg.msg_control = c->udp->pktinfo;
 		msg.msg_controllen = sizeof(c->udp->pktinfo);
 	}
 	return recvmsg(st->fd, &msg, 0);

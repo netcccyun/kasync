@@ -89,11 +89,9 @@ KTHREAD_FUNCTION kselector_thread(void *param)
 	kselector_init(selector);
 	int ret = 0;
 	for (;;) {
-#ifdef MALLOCDEBUG
 		if (kselector_can_close(selector)) {
 			break;
 		}
-#endif
 		ret = kgl_selector_module.select(selector, kselector_check_timeout(selector, ret));
 	}
 	kselector_exit(selector);
@@ -103,7 +101,12 @@ void kselector_add_block_queue(kselector *selector, kgl_block_queue *bq);
 static kev_result next_add_timer(KOPAQUE data, void *arg, int got)
 {
 	kgl_block_queue *brq = (kgl_block_queue *)arg;
-	kselector_add_block_queue(kgl_get_tls_selector(),brq);
+	kselector *selector = kgl_get_tls_selector();
+	if (selector->shutdown) {
+		xfree(brq);
+		return kev_ok;
+	}
+	kselector_add_block_queue(selector,brq);
 	return kev_ok;
 }
 static kev_result add_timer_on_ready(KOPAQUE data, void* arg, int got)
@@ -128,6 +131,9 @@ void selector_manager_add_timer(result_callback timer, void *arg, int msec, KOPA
 }
 void kselector_add_timer_ts(kselector *selector,result_callback timer, void *arg, int msec, KOPAQUE data)
 {
+	if (selector->shutdown) {
+		return;
+	}
 	kgl_block_queue *brq = xmemory_new(kgl_block_queue);
 	brq->active_msec = kgl_current_msec + msec;
 	brq->func = timer;
@@ -146,6 +152,9 @@ int get_selector_count()
 }
 void selector_manager_close()
 {
+	if (kgl_selectors == NULL) {
+		return;
+	}
 	for (int i = 0; i < kgl_selector_count; i++) {
 		kgl_selectors[i]->shutdown = 1;
 	}
@@ -164,6 +173,10 @@ void selector_manager_close()
 		}
 	}
 	xfree(kgl_selectors);
+	kgl_selectors = NULL;
+	kgl_selector_count = 0;
+	kgl_selector_hash = 0;
+	kgl_selector_index = 0;
 }
 void selector_manager_start(void(*time_hook)(),bool thread)
 {
@@ -401,4 +414,3 @@ int kasync_main(kfiber_start_func main, void* arg, int argc)
 	kselector_destroy(selector);
 	return ret_val;
 }
-

@@ -7,8 +7,8 @@ kasync_worker *kasync_worker_init(int max_worker, int max_queue)
 {
 	kasync_worker *worker = (kasync_worker *)xmalloc(sizeof(kasync_worker));
 	memset(worker, 0, sizeof(kasync_worker));
-	worker->max_worker = max_worker;
-	worker->max_queue = max_queue;
+	worker->max_worker = KGL_MAX(max_worker, 1);
+	worker->max_queue = KGL_MAX(max_queue, 0);
 	kmutex_init(&worker->lock, NULL);
 	worker->refs = 1;
 	return worker;
@@ -85,7 +85,7 @@ bool kasync_worker_thread_start(void *param, kasync_worker_callback cb)
 	xfree(p);
 	return false;
 }
-static void kasync_worker_add(kasync_worker *worker, kasync_worker_param *rq, bool high)
+static bool kasync_worker_add(kasync_worker *worker, kasync_worker_param *rq, bool high)
 {
 	worker->queue++;
 	if (worker->last == NULL) {
@@ -104,20 +104,34 @@ static void kasync_worker_add(kasync_worker *worker, kasync_worker_param *rq, bo
 		}
 	}
 	if (worker->worker >= worker->max_worker) {
-		return;
+		return true;
 	}
 	worker->worker++;
 	kasync_worker_refs(worker);
 	if (!kthread_pool_start(kasync_worker_worker_thread,worker)) {
 		worker--;
 		kasync_worker_release(worker);
+		if (worker->worker == 0) {
+			kasync_worker_param **link = &worker->head;
+			while (*link && *link != rq) {
+				link = &(*link)->next;
+			}
+			if (*link == rq) {
+				*link = rq->next;
+				if (worker->last == rq) {
+					worker->last = NULL;
+				}
+				worker->queue--;
+			}
+			return false;
+		}
 	}
-	return;
+	return true;
 }
 bool kasync_worker_try_start(kasync_worker *worker, void *data, kasync_worker_callback cb, bool high)
 {
 	kmutex_lock(&worker->lock);
-	if (worker->max_queue > 0 && worker->queue > worker->max_queue) {
+	if (worker->max_queue > 0 && worker->queue >= worker->max_queue) {
 		kmutex_unlock(&worker->lock);
 		return false;
 	}
@@ -128,9 +142,12 @@ bool kasync_worker_try_start(kasync_worker *worker, void *data, kasync_worker_ca
 	rq->data = data;
 	rq->next = NULL;
 	rq->wait = NULL;
-	kasync_worker_add(worker,rq, high);
+	bool added = kasync_worker_add(worker,rq, high);
 	kmutex_unlock(&worker->lock);
-	return true;
+	if (!added) {
+		kasync_worker_param_destroy(rq);
+	}
+	return added;
 }
 bool kasync_worker_empty(kasync_worker *worker)
 {
@@ -148,12 +165,20 @@ void kasync_worker_start(kasync_worker *worker, void *data, kasync_worker_callba
 	rq->data = data;
 	rq->next = NULL;
 	kmutex_lock(&worker->lock);
-	if (worker->max_queue > 0 && worker->queue > worker->max_queue) {
+	if (worker->max_queue > 0 && worker->queue >= worker->max_queue) {
 		wait = kcond_init(true);
 	}
 	rq->wait = wait;
-	kasync_worker_add(worker, rq, false);
+	bool added = kasync_worker_add(worker, rq, false);
 	kmutex_unlock(&worker->lock);
+	if (!added) {
+		if (wait != NULL) {
+			kcond_destroy(wait);
+		}
+		rq->cb(rq->data, 0);
+		kasync_worker_param_destroy(rq);
+		return;
+	}
 	if (wait != NULL) {
 		kcond_wait(wait);
 		kcond_destroy(wait);

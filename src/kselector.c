@@ -164,11 +164,9 @@ int kselector_check_timeout(kselector *selector,int event_number)
 			}
 			kselectable *st = kgl_list_data(l, kselectable, base.queue);
 			kassert(st->base.selector == selector);
-#ifdef MALLOCDEBUG
 			if (selector->shutdown) {
 				selectable_shutdown(st);
 			}
-#endif
 			if ((kgl_current_msec - st->active_msec) < (time_t)selector->timeout[i]) {
 				break;
 			}
@@ -201,11 +199,9 @@ int kselector_check_timeout(kselector *selector,int event_number)
 	while (selector->block_first) {
 		kgl_block_queue *rq = (kgl_block_queue *)selector->block_first->data;
 		kassert(rq);
-#ifdef MALLOCDEBUG
 		if (selector->shutdown) {
 			rq->active_msec = kgl_current_msec - 1;
 		}
-#endif
 		if (kgl_current_msec < rq->active_msec) {
 			break;
 		}
@@ -291,11 +287,9 @@ void kselector_add_block_queue(kselector *selector, kgl_block_queue *brq)
 }
 int kselector_add_timer(kselector *selector, result_callback result, void *arg, int msec, KOPAQUE data)
 {
-#ifdef MALLOCDEBUG
 	if (selector->shutdown) {
 		return -1;
 	}
-#endif
 	kgl_block_queue *brq = (kgl_block_queue *)xmalloc(sizeof(kgl_block_queue));
 	memset(brq, 0, sizeof(kgl_block_queue));
 	brq->active_msec = kgl_current_msec + msec;

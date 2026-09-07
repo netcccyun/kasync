@@ -4,7 +4,7 @@
 
 cmake_minimum_required(VERSION 2.8.12)
 
-project(fcontext LANGUAGES  C ASM)
+project(fcontext C ASM)
 
 # Build features
 

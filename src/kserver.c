@@ -20,8 +20,6 @@ typedef struct {
 } kserver_update_ssl_ctx_param;
 #endif
 
-static int kgl_failed_tries = 0;
-
 #ifndef KGL_IOCP
 kev_result kselector_event_accept(KOPAQUE data, void *arg,int got)
 {
@@ -172,15 +170,16 @@ static kserver_selectable* kserver_listen_on_selector(kselector *selector, kserv
 {
 	KBIT_SET(flag, KSOCKET_REUSEPORT);
 	SOCKET sockfd;
+	int failed_tries = 0;
 	for (;;) {
 		sockfd = ksocket_listen(&server->addr, flag);
 		if (ksocket_opened(sockfd)) {
 			break;
 		}
-		if (kgl_failed_tries > 10) {
+		if (failed_tries >= 10) {
 			break;
 		}
-		kgl_failed_tries++;
+		failed_tries++;
 		if (kfiber_is_main()) {
 			kgl_msleep(500);
 		} else {
@@ -221,7 +220,21 @@ bool kserver_bind(kserver *server, const char *ip, uint16_t port, kgl_ssl_ctx *s
 #endif
 	if (*ip=='/') {
 #ifdef KSOCKET_UNIX	
-		ksocket_unix_addr(ip,&server->un_addr);
+		if (ksocket_unix_addr(ip,&server->un_addr) != 0) {
+#ifdef KSOCKET_SSL
+			if (ssl_ctx) {
+				kgl_release_ssl_ctx(ssl_ctx);
+			}
+#endif
+			return false;
+		}
+#else
+#ifdef KSOCKET_SSL
+		if (ssl_ctx) {
+			kgl_release_ssl_ctx(ssl_ctx);
+		}
+#endif
+		return false;
 #endif
 	} else if (!ksocket_getaddr(ip, port, 0, AI_NUMERICHOST, &server->addr)) {
 #ifdef KSOCKET_SSL
@@ -278,6 +291,7 @@ bool kserver_open_exsit(kserver* server, SOCKET sockfd, result_callback accept_c
 	selectable_bind(&ss->st, kgl_get_tls_selector());
 	if (!kgl_selector_module.listen(ss, accept_callback)) {
 		klog(KLOG_NOTICE, "error [%s:%d]\n", __FILE__, __LINE__);
+		kserver_selectable_destroy(ss);
 		return false;
 	}
 	KBIT_SET(server->flags, KGL_SERVER_START);

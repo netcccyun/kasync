@@ -119,10 +119,7 @@ struct kselector_s
 	struct krb_root block;
 	struct krb_node* block_first;
 	kfiber* current;
-#ifdef MALLOCDEBUG
-	volatile
-#endif
-		pthread_t thread_id;
+	volatile pthread_t thread_id;
 
 };
 kselector* kselector_new(kselector_tick* tick);

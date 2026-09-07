@@ -90,6 +90,16 @@ static void kqueue_selector_destroy(kselector *selector)
 {
 	kqueue_selector *ctx = (kqueue_selector *)selector->ctx;
 	close(ctx->kdpfd);
+	kmutex_lock(&ctx->notice_st.lock);
+	kselector_notice *notice = ctx->notice_st.head;
+	ctx->notice_st.head = NULL;
+	kmutex_unlock(&ctx->notice_st.lock);
+	while (notice) {
+		kselector_notice *next = notice->next;
+		xfree(notice);
+		notice = next;
+	}
+	kmutex_destroy(&ctx->notice_st.lock);
 	xfree(ctx);
 }
 static void kqueue_selector_next(kselector *selector,KOPAQUE data, result_callback result, void *arg, int got)
@@ -291,6 +301,9 @@ static int kqueue_selector_select(kselector *selector, int tmo)
 	}
 	for (int n = 0; n < ret; ++n) {
 		kselectable *st = (kselectable *) events[n].udata;
+		if (events[n].filter != EVFILT_USER && KBIT_TEST(events[n].flags, EV_ERROR | EV_EOF)) {
+			KBIT_SET(st->base.st_flags, STF_ERR);
+		}
 #ifndef NDEBUG
 		//klog(KLOG_DEBUG,"select st=%p,st_flags=%d,events=%d at %p\n",st,st->base.st_flags,events[n].filter,pthread_self());
 #endif

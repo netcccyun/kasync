@@ -108,15 +108,16 @@ bool get_addr(const char *hostname, kgl_addr_type addr_type, struct addrinfo **r
 	case kgl_addr_cname:
 		f.ai_family = PF_INET;
 		f.ai_flags = AI_CANONNAME;
+		break;
 	default:
 		f.ai_family = PF_UNSPEC;
 		f.ai_flags = 0;
+		break;
 	}
 #ifndef KSOCKET_IPV6
 	f.ai_family = PF_INET;
 #endif
-	getaddrinfo(hostname, NULL, &f, res);
-	return true;
+	return getaddrinfo(hostname, NULL, &f, res) == 0 && *res != NULL;
 }
 static kgl_addr_queue *update_addr_node_cache(kgl_addr_node *cn, kgl_addr *addr) {
 	kmutex_lock(&addr_lock);

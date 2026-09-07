@@ -230,10 +230,10 @@ const char* kfiber_powered_by() {
 }
 kfiber* kfiber_new(kfiber_start_func start, void* start_arg, int stk_size) {
 	kfiber* fiber;
-	int stk_page = stk_size / _ST_PAGE_SIZE;
-	stk_size = stk_page * _ST_PAGE_SIZE;
-	if (stk_size == 0) {
+	if (stk_size <= 0) {
 		stk_size = ST_DEFAULT_STACK_SIZE;
+	} else {
+		stk_size = kgl_align(stk_size, _ST_PAGE_SIZE);
 	}
 #ifndef NDEBUG
 #ifndef ENABLE_WIN_FIBER
@@ -245,6 +245,9 @@ kfiber* kfiber_new(kfiber_start_func start, void* start_arg, int stk_size) {
 #else
 	fiber = (kfiber*)malloc(sizeof(kfiber) + stk_size + 2 * KFIBER_REDZONE);
 #endif
+	if (fiber == NULL) {
+		return NULL;
+	}
 	//printf("new fiber [%p] stk_size=[%d]\n", fiber, stk_size);
 	memset(fiber, 0, sizeof(kfiber));
 	fiber->base.st_flags = STF_FIBER;
@@ -253,8 +256,16 @@ kfiber* kfiber_new(kfiber_start_func start, void* start_arg, int stk_size) {
 	fiber->arg = start_arg;
 #ifdef ENABLE_FCONTEXT
 	fiber->ctx = make_fcontext((char*)(fiber + 1) + KFIBER_REDZONE + stk_size, stk_size, fiber_start);
+	if (fiber->ctx == NULL) {
+		xfree(fiber);
+		return NULL;
+	}
 #elif defined(ENABLE_WIN_FIBER)
 	fiber->ctx = CreateFiber(stk_size, fiber_start, fiber);
+	if (fiber->ctx == NULL) {
+		xfree(fiber);
+		return NULL;
+	}
 #else
 #ifndef DISABLE_KFIBER
 	if (kfiber_getcontext(&fiber->ctx) == -1) {

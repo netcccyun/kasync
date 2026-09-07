@@ -321,7 +321,7 @@ int kfiber_file_safe_read(kfiber_file * fp, char* buf, int length);
 void kfiber_file_close(kfiber_file * fp);
 int kfiber_file_seek(kfiber_file * fp, seekPosion pos, int64_t offset);
 int64_t kfiber_file_tell(kfiber_file * fp);
-#if defined(O_DIRECT) && defined(LINUX_EPOLL)
+#ifdef LINUX_EPOLL
 #define kfiber_file_adjust(file,buf) (const char *)(buf + file->st.direct_io_offset)
 #else
 #define kfiber_file_adjust(file,buf) (const char *)(buf)

@@ -74,7 +74,7 @@ struct kselectable_s
 		struct {
 			/* fd is aio file. */
 			int64_t   offset;
-#if defined(O_DIRECT) && defined(LINUX_EPOLL)
+#ifdef LINUX_EPOLL
 			int       direct_io_orig_length;
 			uint16_t  direct_io_offset;
 			uint16_t  direct_io:1;

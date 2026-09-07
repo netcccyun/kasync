@@ -121,7 +121,7 @@ void aio_free_buffer(void *buf)
 	kgl_align_free(buf);
 #endif
 }
-#if defined(O_DIRECT) && defined(LINUX_EPOLL)
+#ifdef LINUX_EPOLL
 bool kasync_file_direct(kasync_file *fp, bool on_flag) {
 	int flags = fcntl(fp->st.fd, F_GETFL);
     if (flags == -1) {

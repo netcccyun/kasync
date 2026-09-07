@@ -9,6 +9,7 @@
 #include "kasync_file.h"
 #include "klog.h"
 #include <liburing.h>
+#include <errno.h>
 #include <poll.h>
 #include "kfiber.h"
 
@@ -154,6 +155,20 @@ static void iouring_selector_init(kselector *selector)
 static void iouring_selector_destroy(kselector *selector)
 {
 	kiouring_selector *es = (kiouring_selector *)selector->ctx;
+	io_uring_queue_exit(&es->ring);
+	if (es->notice_st.st.fd >= 0) {
+		close(es->notice_st.st.fd);
+	}
+	kmutex_lock(&es->notice_st.lock);
+	kselector_notice *notice = es->notice_st.head;
+	es->notice_st.head = NULL;
+	kmutex_unlock(&es->notice_st.lock);
+	while (notice) {
+		kselector_notice *next = notice->next;
+		xfree(notice);
+		notice = next;
+	}
+	kmutex_destroy(&es->notice_st.lock);
 	xfree(es);
 }
 static void iouring_selector_next(kselector *selector, KOPAQUE data, result_callback result, void *arg, int got)
@@ -307,7 +322,7 @@ bool iouring_selector_aio_write(kasync_file *file, result_callback result, const
 	kselectable *st = &file->st;
 	kassert(KBIT_TEST(st->base.st_flags, STF_WRITE) == 0);
 	kgl_event *e = &st->e[OP_WRITE];
-	e->arg = file;
+	e->arg = arg;
 	e->result = result;
 	e->buffer = NULL;
 	e->st = st;
@@ -326,7 +341,7 @@ bool iouring_selector_aio_read(kasync_file *file, result_callback result, char *
 	kselectable *st = &file->st;
 	kassert(KBIT_TEST(st->base.st_flags, STF_READ) == 0);	
 	kgl_event *e = &st->e[OP_READ];
-	e->arg = file;
+	e->arg = arg;
 	e->result = result;
 	e->buffer = NULL;
 	e->st = st;
@@ -356,11 +371,15 @@ static bool iouring_selector_connect(kselector *selector, kselectable *st, resul
 	kselector_add_list(selector,st, KGL_LIST_CONNECT);
 	return true;
 }
-static void iouring_add_timeout(struct io_uring *ring,unsigned wait_nr,struct __kernel_timespec *ts)
+static bool iouring_add_timeout(struct io_uring *ring,unsigned wait_nr,struct __kernel_timespec *ts)
 {
 	struct io_uring_sqe *sqe = kiouring_get_seq(ring);
+	if (sqe == NULL) {
+		return false;
+	}
 	io_uring_prep_timeout(sqe, ts, wait_nr, 0);
 	sqe->user_data = LIBURING_UDATA_TIMEOUT;
+	return true;
 }
 static inline void handle_complete_event(kselector *selector,kgl_event *e,int got,uint32_t flags)
 {
@@ -443,6 +462,12 @@ static int iouring_selector_select(kselector *selector, int tmo)
 	int n = io_uring_submit_and_wait(&es->ring, 1);
 	if (selector->utm) {
 		kselector_update_time();
+	}
+	if (n < 0) {
+		if (n != -EINTR) {
+			klog(KLOG_ERR, "io_uring_submit_and_wait failed: %s\n", strerror(-n));
+		}
+		return 0;
 	}
 	return iouring_handle_cq(selector,&es->ring,n);
 }

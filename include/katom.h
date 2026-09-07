@@ -61,7 +61,7 @@ INLINE uint32_t katom_dec(void * var)
 //自减，返回之后的值
 INLINE int64_t katom_dec64(void * var)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return InterlockedDecrement64((LONGLONG *)(var)); // NOLINT
 #else
 	return __sync_add_and_fetch((int64_t *)(var), -1); // NOLINT
@@ -79,7 +79,7 @@ INLINE uint32_t katom_add(void * var, const int32_t value)
 //加一个值，返回之前的值
 INLINE int64_t katom_add64(void * var, const int64_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return InterlockedExchangeAdd64((LONGLONG *)(var), value); // NOLINT
 #else
 	return __sync_fetch_and_add((int64_t *)(var), value);  // NOLINT
@@ -99,7 +99,7 @@ INLINE uint32_t katom_sub(void * var, int32_t value)
 //返回之前的值
 INLINE int64_t katom_sub64(void * var, const int64_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return InterlockedExchangeAdd64((LONGLONG *)(var), -value); // NOLINT
 #else
 	return __sync_fetch_and_sub((int64_t *)(var), value);  // NOLINT
@@ -108,7 +108,7 @@ INLINE int64_t katom_sub64(void * var, const int64_t value)
 //返回之前的值
 INLINE int64_t katom_set64(void * var, const uint64_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return InterlockedExchange64((LONGLONG *)(var), (LONGLONG)(value));
 #else
 	return __sync_lock_test_and_set((uint64_t *)(var), value);
@@ -151,7 +151,7 @@ INLINE bool katom_cas(void *var, int32_t compare, int32_t value)
 }
 INLINE bool katom_cas16(void *var, int16_t compare, int16_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return compare == InterlockedCompareExchange16((SHORT *)var, value, compare);
 #else
 	return __sync_bool_compare_and_swap((int16_t *)var, compare, value);
@@ -159,7 +159,7 @@ INLINE bool katom_cas16(void *var, int16_t compare, int16_t value)
 }
 INLINE bool katom_cas64(void *var, int64_t compare, int64_t value)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return compare == InterlockedCompareExchange64((LONGLONG *)var, value, compare);
 #else
 	return __sync_bool_compare_and_swap((int64_t *)var, compare, value);

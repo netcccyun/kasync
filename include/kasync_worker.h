@@ -28,8 +28,16 @@ typedef struct {
 
 INLINE void kasync_worker_set(kasync_worker *worker, int max_worker, int max_queue)
 {
+	if (max_worker < 1) {
+		max_worker = 1;
+	}
+	if (max_queue < 0) {
+		max_queue = 0;
+	}
+	kmutex_lock(&worker->lock);
 	worker->max_worker = max_worker;
 	worker->max_queue = max_queue;
+	kmutex_unlock(&worker->lock);
 }
 bool kasync_worker_empty(kasync_worker *worker);
 kasync_worker *kasync_worker_init(int max_worker, int max_queue);
