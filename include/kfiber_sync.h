@@ -18,9 +18,9 @@ struct _kfiber_cond_ts {
 struct _kfiber_mutex {
 	kfiber_waiter* waiter;
 	kmutex lock;
-	int count;// ×ÜÊı
-	int worker;//»ñµÃËøÊıÁ¿
-	int limit;//×î¶à¼¸¸öÍ¬Ê±»ñµÃËø
+	int count;// æ€»æ•°
+	int worker;//è·å¾—é”æ•°é‡
+	int limit;//æœ€å¤šå‡ ä¸ªåŒæ—¶è·å¾—é”
 };
 
 struct _kfiber_rwlock {

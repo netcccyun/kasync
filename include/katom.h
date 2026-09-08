@@ -3,7 +3,7 @@
 #include "kforwin32.h"
 #define ENABLE_KATOM_16
 KBEGIN_DECLS
-//×ÔÔö
+//è‡ªå¢
 INLINE uint64_t katom_inc64(void * var)
 {
 #ifdef _WIN32
@@ -13,7 +13,7 @@ INLINE uint64_t katom_inc64(void * var)
 #endif
 }
 
-//×ÔÔö
+//è‡ªå¢
 INLINE uint32_t katom_inc(void * var)
 {
 #ifdef _WIN32
@@ -30,7 +30,7 @@ INLINE uint16_t katom_set16(void* var, const uint16_t value) {
 	return __sync_lock_test_and_set((uint16_t*)(var), value);  // NOLINT
 #endif
 }
-//×ÔÔö£¬·µ»ØÖ®ºóµÄÖµ
+//è‡ªå¢ï¼Œè¿”å›ä¹‹åçš„å€¼
 INLINE int16_t katom_inc16(void * var)
 {
 #ifdef _WIN32
@@ -39,7 +39,7 @@ INLINE int16_t katom_inc16(void * var)
 	return __sync_add_and_fetch((int16_t *)(var), 1); // NOLINT
 #endif
 }
-//×Ô¼õ£¬·µ»ØÖ®ºóµÄÖµ
+//è‡ªå‡ï¼Œè¿”å›ä¹‹åçš„å€¼
 INLINE int16_t katom_dec16(void * var)
 {
 #ifdef _WIN32
@@ -49,7 +49,7 @@ INLINE int16_t katom_dec16(void * var)
 #endif
 }
 #endif
-//×Ô¼õ
+//è‡ªå‡
 INLINE uint32_t katom_dec(void * var)
 {
 #ifdef _WIN32
@@ -58,7 +58,7 @@ INLINE uint32_t katom_dec(void * var)
 	return __sync_add_and_fetch((uint32_t *)(var), -1); // NOLINT
 #endif
 }
-//×Ô¼õ£¬·µ»ØÖ®ºóµÄÖµ
+//è‡ªå‡ï¼Œè¿”å›ä¹‹åçš„å€¼
 INLINE int64_t katom_dec64(void * var)
 {
 #ifdef _WIN32
@@ -67,7 +67,7 @@ INLINE int64_t katom_dec64(void * var)
 	return __sync_add_and_fetch((int64_t *)(var), -1); // NOLINT
 #endif
 }
-//¼ÓÒ»¸öÖµ
+//åŠ ä¸€ä¸ªå€¼
 INLINE uint32_t katom_add(void * var, const int32_t value)
 {
 #ifdef _WIN32
@@ -76,7 +76,7 @@ INLINE uint32_t katom_add(void * var, const int32_t value)
 	return __sync_fetch_and_add((uint32_t *)(var), value);  // NOLINT
 #endif
 }
-//¼ÓÒ»¸öÖµ£¬·µ»ØÖ®Ç°µÄÖµ
+//åŠ ä¸€ä¸ªå€¼ï¼Œè¿”å›ä¹‹å‰çš„å€¼
 INLINE int64_t katom_add64(void * var, const int64_t value)
 {
 #ifdef _WIN32
@@ -86,7 +86,7 @@ INLINE int64_t katom_add64(void * var, const int64_t value)
 #endif
 }
 
-//¼õÒ»¸öÖµ
+//å‡ä¸€ä¸ªå€¼
 INLINE uint32_t katom_sub(void * var, int32_t value)
 {
 	value = value * -1;
@@ -96,7 +96,7 @@ INLINE uint32_t katom_sub(void * var, int32_t value)
 	return __sync_fetch_and_add((uint32_t *)(var), value);  // NOLINT
 #endif
 }
-//·µ»ØÖ®Ç°µÄÖµ
+//è¿”å›ä¹‹å‰çš„å€¼
 INLINE int64_t katom_sub64(void * var, const int64_t value)
 {
 #ifdef _WIN32
@@ -105,7 +105,7 @@ INLINE int64_t katom_sub64(void * var, const int64_t value)
 	return __sync_fetch_and_sub((int64_t *)(var), value);  // NOLINT
 #endif
 }
-//·µ»ØÖ®Ç°µÄÖµ
+//è¿”å›ä¹‹å‰çš„å€¼
 INLINE int64_t katom_set64(void * var, const uint64_t value)
 {
 #ifdef _WIN32
@@ -114,7 +114,7 @@ INLINE int64_t katom_set64(void * var, const uint64_t value)
 	return __sync_lock_test_and_set((uint64_t *)(var), value);
 #endif
 }
-//¸³Öµ,windowsÏÂ·µ»ØĞÂÖµ£¬linuxÏÂ·µ»Ø¾ÉÖµ
+//èµ‹å€¼,windowsä¸‹è¿”å›æ–°å€¼ï¼Œlinuxä¸‹è¿”å›æ—§å€¼
 INLINE uint32_t katom_set(void * var, const uint32_t value)
 {
 #ifdef _WIN32
@@ -123,7 +123,7 @@ INLINE uint32_t katom_set(void * var, const uint32_t value)
 	return __sync_lock_test_and_set((uint32_t *)(var), value);  // NOLINT
 #endif
 }
-//È¡Öµ
+//å–å€¼
 INLINE uint32_t katom_get(void * var)
 {
 #ifdef _WIN32
@@ -132,7 +132,7 @@ INLINE uint32_t katom_get(void * var)
 	return __sync_fetch_and_add((uint32_t *)(var), 0);  // NOLINT
 #endif
 }
-//È¡Öµ
+//å–å€¼
 INLINE uint64_t katom_get64(void * var)
 {
 #ifdef _WIN32

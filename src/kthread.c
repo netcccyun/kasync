@@ -89,7 +89,7 @@ static KTHREAD_FUNCTION run_thread(void *param) {
 		m_thread->run_count++;
 		m_thread->end_time = time(NULL);
 #ifndef _WIN32
-		//×èÈûĞÅºÅ
+		//é˜»å¡ä¿¡å·
 		pthread_sigmask(SIG_BLOCK, &m_blockset, NULL);
 #endif
 		kmutex_lock(&thread_lock);
@@ -150,7 +150,7 @@ void kthread_init()
 	klist_init(&free_threads);
 #ifndef _WIN32
 	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);//ÉèÖÃÏß³ÌÎª·ÖÀë	
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);//è®¾ç½®çº¿ç¨‹ä¸ºåˆ†ç¦»
 	signal(KGL_NOTICE_THREAD_SIG, recv_notice_thread_ignore);
 	sigemptyset(&m_blockset);
 	sigaddset(&m_blockset, KGL_NOTICE_THREAD_SIG);

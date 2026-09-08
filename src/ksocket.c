@@ -65,7 +65,7 @@ void ksocket_library_startup() {
 		dwErr = WSAIoctl(sock, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER, &m_guid, sizeof(m_guid), &kgl_rio, sizeof(kgl_rio), &dwBytes, NULL, NULL);
 	}
 	closesocket(sock);
-	//windows vista¿ªÊ¼²ÅÓĞCancelIoEx,ËùÒÔÒªÓÃ¶¯Ì¬
+	//windows vistaå¼€å§‹æ‰æœ‰CancelIoEx,æ‰€ä»¥è¦ç”¨åŠ¨æ€
 	pCancelIoEx = (fCancelIoEx)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CancelIoEx");
 #endif
 

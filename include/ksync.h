@@ -137,7 +137,7 @@ INLINE void kgl_pause()
 #endif
 }
 
-//╤асеох
+//Х╞╩Д╪≤Е┘┬
 typedef volatile int32_t krw_mutex;
 INLINE void krw_mutex_init(krw_mutex *mutex)
 {
@@ -183,7 +183,7 @@ INLINE void krw_mutex_runlock(krw_mutex *mutex)
 	katom_dec((void *)mutex);
 }
 
-//п╢сеох
+//Е├≥Д╪≤Е┘┬
 typedef struct {
 	krw_mutex rw;
 	krw_mutex try_write;
