@@ -109,17 +109,19 @@ static bool kasync_worker_add(kasync_worker *worker, kasync_worker_param *rq, bo
 	worker->worker++;
 	kasync_worker_refs(worker);
 	if (!kthread_pool_start(kasync_worker_worker_thread,worker)) {
-		worker--;
+		worker->worker--;
 		kasync_worker_release(worker);
 		if (worker->worker == 0) {
 			kasync_worker_param **link = &worker->head;
+			kasync_worker_param *prev = NULL;
 			while (*link && *link != rq) {
+				prev = *link;
 				link = &(*link)->next;
 			}
 			if (*link == rq) {
 				*link = rq->next;
 				if (worker->last == rq) {
-					worker->last = NULL;
+					worker->last = prev;
 				}
 				worker->queue--;
 			}

@@ -84,7 +84,7 @@ static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 					continue;
 				}
 				if (n != SSL_READ_EARLY_DATA_SUCCESS) {
-					return got;
+					return (got > 0 ? got : -1);
 				}
 				got += (int)read_bytes;
 				len -= (int)read_bytes;
@@ -335,14 +335,14 @@ static inline kev_result selectable_event_sendfile(kselectable* st, result_callb
 	got = sendfile(file->st.fd, st->fd, offset, buffer->iov_len, NULL, &send_bytes, 0);
 #endif
 	if (got < 0) {
-		if (errno == EAGAIN) {
+		if (errno == EAGAIN || errno == EINTR) {
 			KBIT_CLR(st->base.st_flags, STF_WREADY);
+			if (send_bytes == 0) {
+				return kgl_selector_module.sendfile(st, result, buffer, arg);
+			}
+		} else if (send_bytes == 0) {
+			return result(st->data, arg, got);
 		}
-		if (send_bytes == 0) {
-			return kgl_selector_module.sendfile(st, result, buffer, arg);
-		}
-		//int err = errno;
-		//printf("sendfile got=[%d] file->offset=[%lld] send_bytes=[%d] length=[%d] err=[%d %s]\n",got,file->st.offset,send_bytes,bufs.iov_len,err,strerror(err));
 	}
 	return result(st->data, arg, (int)send_bytes);
 #else

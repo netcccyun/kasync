@@ -12,7 +12,9 @@
 #include "kconnection.h"
 #include "kserver.h"
 #define KGL_SSL_ERR_BUF_SIZE 256
+#if !defined(OPENSSL_IS_BORINGSSL) && (OPENSSL_VERSION_NUMBER < 0x10100000L)
 static kmutex* ssl_lock = NULL;
+#endif
 int kangle_ssl_conntion_index;
 int kangle_ssl_ctx_index;
 static kgl_ssl_npn_f ssl_npn;
@@ -100,6 +102,7 @@ int kgl_ssl_npn_advertise(SSL* ssl, const unsigned char** out, unsigned int* out
 	return SSL_TLSEXT_ERR_OK;
 }
 #endif
+#if !defined(OPENSSL_IS_BORINGSSL) && (OPENSSL_VERSION_NUMBER < 0x10100000L)
 static unsigned long __get_thread_id(void) {
 	return (unsigned long)pthread_self();
 }
@@ -110,6 +113,7 @@ static void __lock_thread(int mode, int n, const char* file, int line) {
 		kmutex_unlock(&ssl_lock[n]);
 	}
 }
+#endif
 void kssl_set_npn_callback(kgl_ssl_npn_f npn) {
 	ssl_npn = npn;
 }
@@ -121,10 +125,16 @@ void kssl_clean() {
 #ifdef ENABLE_KSSL_BIO
 	kgl_bio_clean_method();
 #endif
-#ifndef OPENSSL_IS_BORINGSSL
-	int locks_num = CRYPTO_num_locks();
-	for (int i = 0; i < locks_num; i++) {
-		kmutex_destroy(&ssl_lock[i]);
+#if !defined(OPENSSL_IS_BORINGSSL) && (OPENSSL_VERSION_NUMBER < 0x10100000L)
+	if (ssl_lock) {
+		CRYPTO_set_locking_callback(NULL);
+		CRYPTO_set_id_callback(NULL);
+		int locks_num = CRYPTO_num_locks();
+		for (int i = 0; i < locks_num; i++) {
+			kmutex_destroy(&ssl_lock[i]);
+		}
+		xfree(ssl_lock);
+		ssl_lock = NULL;
 	}
 #endif
 }
@@ -132,8 +142,9 @@ void kssl_init2() {
 	SSL_load_error_strings();
 	SSL_library_init();
 	SSLeay_add_ssl_algorithms();
-#ifndef OPENSSL_IS_BORINGSSL
-	if ((CRYPTO_get_id_callback() == NULL) &&
+#if !defined(OPENSSL_IS_BORINGSSL) && (OPENSSL_VERSION_NUMBER < 0x10100000L)
+	if (ssl_lock == NULL &&
+		(CRYPTO_get_id_callback() == NULL) &&
 		(CRYPTO_get_locking_callback() == NULL)) {
 		//cuint_t n;
 
@@ -420,8 +431,8 @@ SSL_CTX* kgl_ssl_ctx_new_client(const char* ca_path, const char* ca_file, void* 
 			return NULL;
 		}
 	}
-	const unsigned char s_server_session_id_context[100] = "msocket";
-	SSL_CTX_set_session_id_context(ctx, (const unsigned char*)s_server_session_id_context, sizeof(s_server_session_id_context));
+	static const unsigned char s_server_session_id_context[] = "msocket";
+	SSL_CTX_set_session_id_context(ctx, s_server_session_id_context, sizeof(s_server_session_id_context) - 1);
 	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_BOTH);
 	if (ssl_npn && ssl_ctx_data) {
 #ifdef TLSEXT_TYPE_next_proto_neg
@@ -630,13 +641,10 @@ int kgl_ssl_certificate(SSL_CTX* ctx, const kgl_ref_str_t* cert, const kgl_ref_s
 		return -1;
 	}
 	/*
-	 * Note that x509 is not freed here, but will be instead freed in
-	 * ngx_ssl_cleanup_ctx().  This is because we need to preserve all
-	 * certificates to be able to iterate all of them through exdata
-	 * (ngx_ssl_certificate_index, ngx_ssl_next_certificate_index),
-	 * while OpenSSL can free a certificate if it is replaced with another
-	 * certificate of the same type.
+	 * SSL_CTX_use_certificate() takes its own reference. Drop ours.
+	 * (nginx keeps an extra ref via exdata to iterate certs; this code does not.)
 	 */
+	X509_free(x509);
 
 #ifdef SSL_CTX_set0_chain
 	if (SSL_CTX_set0_chain(ctx, chain) == 0) {

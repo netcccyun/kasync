@@ -447,8 +447,7 @@ int kfiber_net_getaddr(const char* hostname, kgl_addr * *addr) {
 #ifndef KSOCKET_IPV6
 	f.ai_family = PF_INET;
 #endif
-	getaddrinfo(hostname, NULL, &f, &res);
-	if (res != NULL) {
+	if (getaddrinfo(hostname, NULL, &f, &res) == 0 && res != NULL) {
 		*addr = kgl_addr_new(res);
 		return 0;
 	}

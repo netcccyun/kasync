@@ -132,16 +132,16 @@ static kev_result iocp_selector_read(kselector *selector, kselectable *st, resul
 	if (KBIT_TEST(st->base.st_flags, STF_UDP)) {
 		rc = iocp_selector_recvmsg(selector, st, result, buffer, arg);
 	} else {
-		WSABUF recvBuf;		
 		int bufferCount;
 		if (buffer) {
 			bufferCount = buffer->iov_len;
 			buffer = (kgl_iovec*)buffer->iov_base;
 			kassert(buffer->iov_len > 0);
 		} else {
-			memset(&recvBuf, 0, sizeof(WSABUF));
+			st->e[OP_READ].iocp_buf.buf = NULL;
+			st->e[OP_READ].iocp_buf.len = 0;
 			bufferCount = 1;
-			buffer = &recvBuf;
+			buffer = &st->e[OP_READ].iocp_buf;
 		}
 		DWORD BytesRecv = 0;
 		DWORD Flags = 0;
@@ -171,16 +171,16 @@ static kev_result iocp_selector_read(kselector *selector, kselectable *st, resul
 static kev_result iocp_selector_write(kselector *selector, kselectable *st, result_callback result, buffer_callback buffer, void *arg)
 {
 	KBIT_SET(st->base.st_flags,STF_WRITE);
-	WSABUF recvBuf;
 	int bufferCount;
 	if (buffer) {
 		bufferCount = buffer->iov_len;
 		buffer = (kgl_iovec *)buffer->iov_base;
 		kassert(buffer->iov_len > 0);
 	} else {
-		memset(&recvBuf, 0, sizeof(WSABUF));
+		st->e[OP_WRITE].iocp_buf.buf = NULL;
+		st->e[OP_WRITE].iocp_buf.len = 0;
 		bufferCount = 1;
-		buffer = &recvBuf;
+		buffer = &st->e[OP_WRITE].iocp_buf;
 	}
 	//printf("iocp write bc=[%d],data_len=[%d]\n", bufferCount,recvBuf[0].len);
 	DWORD BytesRecv = 0;
@@ -274,6 +274,7 @@ static void iocp_selector_next(kselector *selector, KOPAQUE data, result_callbac
 	if (!PostQueuedCompletionStatus(selector->ctx, got, (ULONG_PTR)next_st, &next_st->e[OP_READ].lp)) {
 		KBIT_CLR(next_st->base.st_flags, STF_READ);
 		xfree(next_st);
+		result(data, arg, -1);
 	}
 }
 

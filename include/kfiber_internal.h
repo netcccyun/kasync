@@ -60,6 +60,7 @@ typedef struct
 	kgl_iovec* buffer;
 #ifdef _WIN32
 	WSAOVERLAPPED lp;
+	WSABUF iocp_buf; /* valid for the lifetime of a pending WSARecv/WSASend when buffer is NULL */
 #endif
 #ifdef LINUX_IOURING
 	kselectable* st;

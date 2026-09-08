@@ -19,10 +19,6 @@ kev_result kasync_file_worker_callback(void* data, int msec) {
 	kasync_file* file = (kasync_file*)data;
 	int op ;
 #ifdef _WIN32
-	OVERLAPPED lp;
-	memset(&lp, 0, sizeof(lp));
-	LARGE_INTEGER* li = (LARGE_INTEGER*)&lp.Pointer;
-	li->QuadPart = _kasync_file_get_adjust_offset(file->offset);
 	DWORD ret;
 #else
 	int ret;
@@ -31,8 +27,14 @@ kev_result kasync_file_worker_callback(void* data, int msec) {
 	case kf_aio_read:
 		op = OP_READ;
 #ifdef _WIN32
-		if (!ReadFile(kasync_file_get_handle(file), file->kiocb.buf, file->kiocb.length, &ret, &lp)) {
-			ret = -1;
+		{
+			HANDLE h = kasync_file_get_handle(file);
+			LARGE_INTEGER li;
+			li.QuadPart = _kasync_file_get_adjust_offset(file);
+			if (!SetFilePointerEx(h, li, NULL, FILE_BEGIN) ||
+				!ReadFile(h, file->kiocb.buf, file->kiocb.length, &ret, NULL)) {
+				ret = -1;
+			}
 		}
 #else
 		ret = (int)pread(kasync_file_get_handle(file), file->kiocb.buf, (size_t)file->kiocb.length, _kasync_file_get_adjust_offset(file));
@@ -41,8 +43,14 @@ kev_result kasync_file_worker_callback(void* data, int msec) {
 	case kf_aio_write:
 		op = OP_WRITE;
 #ifdef _WIN32
-		if (!WriteFile(kasync_file_get_handle(file), file->kiocb.buf, file->kiocb.length, &ret, &lp)) {
-			ret = -1;
+		{
+			HANDLE h = kasync_file_get_handle(file);
+			LARGE_INTEGER li;
+			li.QuadPart = _kasync_file_get_adjust_offset(file);
+			if (!SetFilePointerEx(h, li, NULL, FILE_BEGIN) ||
+				!WriteFile(h, file->kiocb.buf, file->kiocb.length, &ret, NULL)) {
+				ret = -1;
+			}
 		}
 #else
 		ret = (int)pwrite(kasync_file_get_handle(file), file->kiocb.buf, (size_t)file->kiocb.length, _kasync_file_get_adjust_offset(file));

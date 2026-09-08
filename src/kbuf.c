@@ -179,7 +179,7 @@ int krw_read(krw_buffer* rw_buffer, char* buf, int len) {
 		int length;
 		char* read_data = krw_get_read_buffer(rw_buffer, &length);
 		if (read_data == NULL) {
-			return 0;
+			return got;
 		}
 		length = KGL_MIN(length, len);
 		if (length <= 0) {

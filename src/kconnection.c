@@ -130,12 +130,12 @@ kev_result kselectable_ssl_shutdown(kselectable* st, result_callback cb, void* a
 	}
 #endif
 	switch (status) {
-	case SSL_ERROR_WANT_READ:
+	case ret_want_read:
 #ifndef ENABLE_KSSL_BIO
 		selectable_clear_flags(st, STF_RREADY);
 #endif
 		return selectable_read(st, cb, NULL, arg);
-	case SSL_ERROR_WANT_WRITE:
+	case ret_want_write:
 #ifndef ENABLE_KSSL_BIO
 		selectable_clear_flags(st, STF_WREADY);
 #endif
@@ -211,7 +211,7 @@ static kev_result result_ssl_handshake(KOPAQUE data, void *arg, int got)
 		return kselectable_ssl_handshake(&sh->c->st, result_ssl_handshake, sh);
 	}
 }
-static void kconnection_ssl_init(kconnection *c,SSL_CTX *ssl_ctx, SSL *ssl)
+static bool kconnection_ssl_init(kconnection *c,SSL_CTX *ssl_ctx, SSL *ssl)
 {
 	kassert(c->st.ssl == NULL);
 	c->st.ssl = xmemory_new(kssl_session);
@@ -228,6 +228,17 @@ static void kconnection_ssl_init(kconnection *c,SSL_CTX *ssl_ctx, SSL *ssl)
 #ifdef ENABLE_KSSL_BIO
 	c->st.ssl->bio[0].bio = BIO_new(BIO_kgl_method());
 	c->st.ssl->bio[1].bio = BIO_new(BIO_kgl_method());
+	if (c->st.ssl->bio[0].bio == NULL || c->st.ssl->bio[1].bio == NULL) {
+		if (c->st.ssl->bio[0].bio) {
+			BIO_free(c->st.ssl->bio[0].bio);
+		}
+		if (c->st.ssl->bio[1].bio) {
+			BIO_free(c->st.ssl->bio[1].bio);
+		}
+		xfree(c->st.ssl);
+		c->st.ssl = NULL;
+		return false;
+	}
 	SSL_set_bio(ssl, c->st.ssl->bio[OP_READ].bio, c->st.ssl->bio[OP_WRITE].bio);
 #endif
 	c->st.ssl->ssl = ssl;
@@ -236,6 +247,7 @@ static void kconnection_ssl_init(kconnection *c,SSL_CTX *ssl_ctx, SSL *ssl)
 		c->st.ssl->try_early_data = 1;
 	}
 #endif
+	return true;
 }
 kev_result kconnection_ssl_handshake(kconnection *c,result_callback cb, void *arg)
 {	
@@ -267,6 +279,33 @@ static SSL *kconnection_new_ssl(kconnection *c,SSL_CTX *ssl_ctx)
 #endif
 	return ssl;
 }
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+static bool kgl_ssl_client_set_hostname(SSL *ssl, const char *hostname)
+{
+	if (hostname == NULL || *hostname == '\0') {
+		return true;
+	}
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+	{
+		X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+		if (param == NULL) {
+			return false;
+		}
+#ifdef X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS
+		X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+#endif
+		if (X509_VERIFY_PARAM_set1_ip_asc(param, hostname) == 1) {
+			/* RFC 6066: SNI is a DNS hostname, not an IP address. */
+			return true;
+		}
+		if (X509_VERIFY_PARAM_set1_host(param, hostname, 0) != 1) {
+			return false;
+		}
+	}
+#endif
+	return SSL_set_tlsext_host_name(ssl, hostname) == 1;
+}
+#endif
 bool kconnection_ssl_connect(kconnection *c, SSL_CTX *ssl_ctx, const char *sni_hostname)
 {
 	SSL *ssl = kconnection_new_ssl(c, ssl_ctx);
@@ -275,12 +314,16 @@ bool kconnection_ssl_connect(kconnection *c, SSL_CTX *ssl_ctx, const char *sni_h
 	}
 	
 #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
-	if (sni_hostname) {
-		SSL_set_tlsext_host_name(ssl, sni_hostname);
+	if (!kgl_ssl_client_set_hostname(ssl, sni_hostname)) {
+		SSL_free(ssl);
+		return false;
 	}
 #endif
 	SSL_set_connect_state(ssl);
-	kconnection_ssl_init(c, ssl_ctx, ssl);
+	if (!kconnection_ssl_init(c, ssl_ctx, ssl)) {
+		SSL_free(ssl);
+		return false;
+	}
 	return true;
 }
 
@@ -292,7 +335,10 @@ bool kconnection_ssl_accept(kconnection *c, SSL_CTX *ssl_ctx)
 	}
 	SSL_set_accept_state(ssl);
 	SSL_set_ex_data(ssl, kangle_ssl_conntion_index, c);
-	kconnection_ssl_init(c, ssl_ctx, ssl);
+	if (!kconnection_ssl_init(c, ssl_ctx, ssl)) {
+		SSL_free(ssl);
+		return false;
+	}
 	return true;
 }
 #endif

@@ -19,7 +19,7 @@ static int kgl_bio_read(BIO *h, char *buf, int size)
 {
 	krw_buffer *bb = (krw_buffer *)BIO_get_data(h);
 	if (buf==NULL) {
-		klog(KLOG_ERR,"ssl_bio read buf is NULL[%d]\n");
+		klog(KLOG_ERR,"ssl_bio read buf is NULL\n");
 		return -1;
 	}
 	int got = krw_read(bb, buf, (int)size);
