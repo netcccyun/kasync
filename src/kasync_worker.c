@@ -154,7 +154,11 @@ bool kasync_worker_try_start(kasync_worker *worker, void *data, kasync_worker_ca
 bool kasync_worker_empty(kasync_worker *worker)
 {
 	kmutex_lock(&worker->lock);
-	bool result = (worker->head == NULL);
+	/*
+	 * A job leaves the queue before it runs. Callers wait on this before
+	 * destroying the job's target, so a running job must count as pending.
+	 */
+	bool result = (worker->head == NULL && worker->worker == 0);
 	kmutex_unlock(&worker->lock);
 	return result;
 }
