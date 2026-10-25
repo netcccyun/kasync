@@ -151,6 +151,17 @@ static void update_addr_cache(kgl_addr_key *key, struct addrinfo *addr) {
 		node->data = cn;
 	} else {
 		cn = (kgl_addr_node *)node->data;
+		if (cn->prev == NULL) {
+			/*
+			 * The cached node was evicted and a new lookup is in progress.
+			 * Its next pointer is the waiter queue, so leave it to that lookup.
+			 */
+			kmutex_unlock(&addr_lock);
+			if (addr) {
+				freeaddrinfo(addr);
+			}
+			return;
+		}
 		klist_remove(cn);
 	}
 	if (cn->addr != NULL) {
