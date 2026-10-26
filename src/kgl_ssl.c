@@ -814,6 +814,8 @@ kssl_status kgl_ssl_handshake_status(SSL* ssl, int re) {
 	}
 }
 kssl_status kgl_ssl_handshake(SSL* ssl) {
+	/* stale errors left by another connection would make SSL_get_error fail */
+	ERR_clear_error();
 	int re = SSL_do_handshake(ssl);
 	if (re <= 0) {
 		return kgl_ssl_handshake_status(ssl, re);
@@ -828,6 +830,7 @@ kssl_status kgl_ssl_handshake(SSL* ssl) {
 	return ret_ok;
 }
 kssl_status kgl_ssl_shutdown(SSL* ssl) {
+	ERR_clear_error();
 	int n = SSL_shutdown(ssl);
 	if (n == 1) {
 		return ret_ok;

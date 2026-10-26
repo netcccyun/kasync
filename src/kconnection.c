@@ -153,6 +153,7 @@ kev_result kselectable_ssl_handshake(kselectable *st,result_callback cb, void *a
 	if (ssl->try_early_data) {
 		u_char     buf;
 		size_t     readbytes = 0;
+		ERR_clear_error();
 		int n = SSL_read_early_data(ssl->ssl, &buf, 1, &readbytes);
 		//printf("sh=[%p %p] SSL_read_early_data=[%d]\n", sh,ssl->ssl,n);
 		if (n == SSL_READ_EARLY_DATA_FINISH) {

@@ -37,6 +37,7 @@ static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 			if (ssl->in_early) {
 				//printf("ssl_is_init_finished=[%d]\n", SSL_is_init_finished(ssl->ssl));
 				size_t write_bytes;
+				ERR_clear_error();
 				int n = SSL_write_early_data(ssl->ssl, hot, len, &write_bytes);
 				if (n > 0) {
 					got += (int)write_bytes;
@@ -48,6 +49,8 @@ static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 				return (got > 0 ? got : -1);
 			}
 #endif
+			/* callers check SSL_get_error, which a stale queued error would break */
+			ERR_clear_error();
 			int this_len = SSL_write(ssl->ssl, hot, len);
 			//printf("SSL_write try write=[%d] return [%d] got=[%d].\n", len,this_len,got);
 			if (this_len != len) {
@@ -77,6 +80,7 @@ static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 			}
 			if (ssl->in_early) {
 				size_t read_bytes = 0;
+				ERR_clear_error();
 				int n = SSL_read_early_data(ssl->ssl, hot, len, &read_bytes);
 				//printf("ssl_read_early_data ret=[%d] read_bytes=[%d]\n", n, read_bytes);
 				if (n == SSL_READ_EARLY_DATA_FINISH) {
@@ -92,6 +96,7 @@ static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 				continue;
 			}
 #endif
+			ERR_clear_error();
 			int this_len = SSL_read(ssl->ssl, hot, len);
 			if (this_len != len) {
 				return this_len > 0 ? got + this_len : (got>0?got:this_len);
@@ -302,6 +307,7 @@ static inline kev_result selectable_event_sendfile(kselectable* st, result_callb
 	if (st->ssl) {
 		assert(kgl_ssl_support_sendfile(st->ssl));
 #if defined(BIO_get_ktls_send)
+		ERR_clear_error();
 		got = SSL_sendfile(st->ssl->ssl, file->st.fd, offset, buffer->iov_len, 0);
 		if (got >= 0) {
 			return result(st->data, arg, got);
