@@ -7,6 +7,7 @@
 #include <sys/eventfd.h>
 #include <stdio.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 #include "kselectable.h"
 #include "kserver.h"
 #include "ksocket.h"
@@ -22,9 +23,14 @@
 #define MAXEVENT	512
 
 #ifdef LINUX_EPOLL
+#define KEPOLL_AIO_MAX_EVENTS 128
 typedef struct {
 	kselectable st;
 	aio_context_t aio_ctx;
+	/* requests submitted to the kernel and not yet completed */
+	int inflight;
+	/* files waiting for a free aio slot, linked by st.base.queue */
+	kgl_list pending;
 } kepoll_aio_selectable;
 
 typedef struct {
@@ -61,9 +67,74 @@ static INLINE void aio_result(kasync_file *file,struct iocb *iocb, long res, lon
 {
 	file->st.e[OP_READ].result(file->st.data,file->st.e[OP_READ].arg,kasync_file_adjust_result(file,(int)res));
 }
+static kev_result result_aio_sync(KOPAQUE data, void *arg, int got)
+{
+	aio_result((kasync_file *)arg, NULL, got, 0);
+	return kev_ok;
+}
+/*
+ * The kernel could not take the request. Do the I/O now and still report
+ * the result from the event loop, as a submitted request would.
+ */
+static void aio_sync_io(kepoll_selector *es, kasync_file *file)
+{
+	struct iocb *iocb = &file->iocb;
+	ssize_t ret;
+	if (iocb->aio_lio_opcode == IOCB_CMD_PWRITE) {
+		ret = pwrite(iocb->aio_fildes, (void *)(uintptr_t)iocb->aio_buf, (size_t)iocb->aio_nbytes, (off_t)iocb->aio_offset);
+	} else {
+		ret = pread(iocb->aio_fildes, (void *)(uintptr_t)iocb->aio_buf, (size_t)iocb->aio_nbytes, (off_t)iocb->aio_offset);
+	}
+	if (ret < 0) {
+		ret = -errno;
+	}
+	kepoll_notice(&es->notice_st, file->st.data, result_aio_sync, file, (int)ret);
+}
+/*
+ * The aio context only has KEPOLL_AIO_MAX_EVENTS slots. When they are all
+ * in use, queue the request and submit it once an earlier one completes,
+ * instead of failing it.
+ */
+static void aio_submit(kepoll_selector *es, kasync_file *file)
+{
+	kepoll_aio_selectable *aio_st = &es->aio_st;
+	struct iocb *iocb = &file->iocb;
+	if (klist_empty(&aio_st->pending)) {
+		if (io_submit(aio_st->aio_ctx, 1, &iocb) == 1) {
+			aio_st->inflight++;
+			return;
+		}
+		if (errno != EAGAIN || aio_st->inflight <= 0) {
+			aio_sync_io(es, file);
+			return;
+		}
+	}
+	klist_append(&aio_st->pending, &file->st.base.queue);
+}
+static void aio_submit_pending(kepoll_selector *es)
+{
+	kepoll_aio_selectable *aio_st = &es->aio_st;
+	while (!klist_empty(&aio_st->pending)) {
+		kgl_list *l = klist_head(&aio_st->pending);
+		kasync_file *file = kgl_list_data(l, kasync_file, st.base.queue);
+		struct iocb *iocb = &file->iocb;
+		int ret = io_submit(aio_st->aio_ctx, 1, &iocb);
+		if (ret != 1 && errno == EAGAIN && aio_st->inflight > 0) {
+			return;
+		}
+		klist_remove(l);
+		memset(l, 0, sizeof(kgl_list));
+		if (ret == 1) {
+			aio_st->inflight++;
+			continue;
+		}
+		aio_sync_io(es, file);
+	}
+}
 static kev_result result_aio_event(KOPAQUE data, void *arg,int got)
 {
 	kepoll_aio_selectable *aio_st = (kepoll_aio_selectable *)arg;
+	kepoll_selector *es = (kepoll_selector *)aio_st->st.base.selector->ctx;
 	kassert(got==0);
 	uint64_t finished_aio;
 	int j,r;
@@ -83,6 +154,10 @@ static kev_result result_aio_event(KOPAQUE data, void *arg,int got)
 		   }
 		   r = io_getevents(aio_st->aio_ctx, 1, get_events, events, &tms);
 		   if (r > 0) {
+				   aio_st->inflight -= r;
+				   if (aio_st->inflight < 0) {
+					   aio_st->inflight = 0;
+				   }
 				   for (j = 0; j < r; ++j) {
 						   kasync_file *ctx = (kasync_file *)events[j].data;
 						   aio_result(ctx,(struct iocb *)events[j].obj, events[j].res, events[j].res2);
@@ -97,6 +172,7 @@ static kev_result result_aio_event(KOPAQUE data, void *arg,int got)
 			   break;
 		   }
 	}
+	aio_submit_pending(es);
 	return kev_ok;
 
 }
@@ -166,8 +242,9 @@ static void epoll_selector_init(kselector *selector)
 	if (epoll_ctl(ctx->kdpfd, EPOLL_CTL_ADD, ctx->aio_st.st.fd, &epevent)) {
 		perror("epoll_ctl");
 	}
+	klist_init(&ctx->aio_st.pending);
 	memset(&ctx->aio_st.aio_ctx,0,sizeof(ctx->aio_st.aio_ctx));
-	if (io_setup(128, &ctx->aio_st.aio_ctx)) {
+	if (io_setup(KEPOLL_AIO_MAX_EVENTS, &ctx->aio_st.aio_ctx)) {
 			perror("io_setup");
 	}
 
@@ -467,10 +544,8 @@ bool epoll_selector_aio_write(kasync_file *file, result_callback result,const ch
 	iocb->aio_flags = IOCB_FLAG_RESFD;
 	iocb->aio_resfd = es->aio_st.st.fd;
 	iocb->aio_data = (__u64)(uintptr_t)file;
-	if (io_submit(es->aio_st.aio_ctx, 1, &iocb)==1) {
-		return true;
-	}
-	return false;
+	aio_submit(es, file);
+	return true;
 #endif
 }
 bool epoll_selector_aio_read(kasync_file *file, result_callback result, char *buf, int length, void *arg)
@@ -508,12 +583,8 @@ bool epoll_selector_aio_read(kasync_file *file, result_callback result, char *bu
 	iocb->aio_flags = IOCB_FLAG_RESFD;
 	iocb->aio_resfd = es->aio_st.st.fd;
 	iocb->aio_data = (__u64)(uintptr_t)file;
-	//printf("read set iocb=[%p]\n",iocb);
-	if (io_submit(es->aio_st.aio_ctx, 1, &iocb)==1) {
-		return true;
-	}
-	perror("io_submit read");
-	return false;
+	aio_submit(es, file);
+	return true;
 #endif
 }
 static kselector_module epoll_selector_module = {

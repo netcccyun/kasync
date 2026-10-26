@@ -64,8 +64,22 @@ static void kthread_wait(kthread_info *ti)
 #ifdef _WIN32
 	WaitForSingleObject(ti->notice, INFINITE);
 #else
-	int recv_sig = 0;
-	sigwait(&m_blockset, &recv_sig);
+	/*
+	 * The notice signal is SIGUSR2, which kangle also uses as a
+	 * process signal (kangle -f), so sigwait can take a signal that is not
+	 * for this thread. Wait again until a command is really set, or this
+	 * thread would free itself while it is still in free_threads.
+	 */
+	for (;;) {
+		int recv_sig = 0;
+		sigwait(&m_blockset, &recv_sig);
+		kmutex_lock(&thread_lock);
+		kthread_command cmd = ti->cmd;
+		kmutex_unlock(&thread_lock);
+		if (cmd != kthread_command_null) {
+			break;
+		}
+	}
 	pthread_sigmask(SIG_UNBLOCK, &m_blockset, NULL);
 #endif
 }
