@@ -396,6 +396,14 @@ SSL_CTX* kgl_ssl_ctx_new(void* ssl_ctx_data) {
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
 #endif
+#ifdef SSL_OP_NO_RENEGOTIATION
+	/*
+	 * OpenSSL 1.1.x accepts client-initiated renegotiation, so a client could
+	 * make the server run full handshakes in a loop on one connection. The
+	 * SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS fallback in kgl_ssl_handshake() only covers OpenSSL 1.0.
+	 */
+	SSL_CTX_set_options(ctx, SSL_OP_NO_RENEGOTIATION);
+#endif
 #ifdef SSL_MODE_RELEASE_BUFFERS
 	SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
 #endif
