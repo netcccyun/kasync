@@ -150,7 +150,7 @@ void kselector_update_time()
 }
 int kselector_check_timeout(kselector *selector,int event_number)
 {
-	kgl_list* tick_list,*tick_next_list;
+	kgl_list* tick_list;
 	kselector_tick* tick;
 	struct krb_node *block = NULL;
 	struct krb_node *last = NULL;
@@ -263,16 +263,21 @@ int kselector_check_timeout(kselector *selector,int event_number)
 		}
 	}
 	tick_list = klist_head(&selector->tick);
-
+	/*
+	 * A callback may close other ticks: an HTTP/3 engine tick frees the
+	 * timeout tick of each request stream it closes. Keep the next tick in
+	 * the selector so kselector_close_tick can step past one it frees.
+	 */
 	while (tick_list != &selector->tick) {
 		tick = kgl_list_data(tick_list, kselector_tick, queue);
-		tick_next_list = tick_list->next;
+		selector->tick_next = tick_list->next;
 		int next_event_time = tick->cb(tick->arg, event_number);
 		if (next_event_time > 0 && next_event_time < min_event_time) {
 			min_event_time = next_event_time;
 		}
-		tick_list = tick_next_list;
+		tick_list = selector->tick_next;
 	}
+	selector->tick_next = NULL;
 	return min_event_time;
 }
 void kselector_add_block_queue(kselector *selector, kgl_block_queue *brq)
@@ -339,6 +344,9 @@ bool kselector_close_tick(kselector_tick* tick)
 	kselector* selector = kgl_get_tls_selector();
 	if (selector == NULL) {
 		return false;
+	}
+	if (selector->tick_next == &tick->queue) {
+		selector->tick_next = tick->queue.next;
 	}
 	klist_remove(&tick->queue);
 	xfree(tick);

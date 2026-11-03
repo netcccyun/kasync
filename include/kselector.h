@@ -120,7 +120,8 @@ struct kselector_s
 	struct krb_node* block_first;
 	kfiber* current;
 	volatile pthread_t thread_id;
-
+	/* next tick to run while kselector_check_timeout walks the tick list */
+	kgl_list* tick_next;
 };
 kselector* kselector_new(kselector_tick* tick);
 void kselector_destroy(kselector* selector);
