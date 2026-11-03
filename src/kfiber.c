@@ -594,6 +594,14 @@ int kfiber_file_read(kfiber_file * file, char* buf, int length) {
 	CHECK_FIBER(fiber);
 	kasync_file_bind_opaque(file, fiber);
 	assert(kasync_file_get_selector(file) == fiber->base.selector);
+#ifdef LINUX_EPOLL
+	/* page cache hit: no need to go through the event loop */
+	int got = kasync_file_read_cached(file, buf, length);
+	if (got >= 0) {
+		file->st.offset += got;
+		return got;
+	}
+#endif
 	if (!kgl_selector_module.aio_read(file, kfiber_file_callback, buf, length, file)) {
 		return -1;
 	}

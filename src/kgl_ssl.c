@@ -412,6 +412,8 @@ SSL_CTX* kgl_ssl_ctx_new(void* ssl_ctx_data) {
 #endif
 	SSL_CTX_set_read_ahead(ctx, 0);
 	SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
+	/* kgl_ssl_writev may retry a write from its staging buffer instead of the caller's */
+	SSL_CTX_set_mode(ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 #if (OPENSSL_VERSION_NUMBER < 0x10100001L && !defined LIBRESSL_VERSION_NUMBER)
 	SSL_CTX_set_tmp_rsa_callback(ctx, kgl_ssl_rsa512_key_callback);
 #endif

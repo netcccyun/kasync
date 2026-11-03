@@ -18,7 +18,7 @@
 #include "kudp.h"
 
 #ifdef KSOCKET_SSL
-static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
+static inline int kgl_ssl_writev_each(kssl_session* ssl, WSABUF* buffer, int bc)
 {
 	int got = 0;
 	for (int i = 0; i < bc; i++) {
@@ -61,6 +61,100 @@ static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 		}
 	}
 	return got;
+}
+#ifndef ENABLE_KSSL_BIO
+/* one TLS record holds at most 16KB of plaintext */
+#define KGL_SSL_COALESCE_SIZE 16384
+#ifdef _WIN32
+static __declspec(thread) char* kgl_ssl_coalesce_buf = NULL;
+#else
+static __thread char* kgl_ssl_coalesce_buf = NULL;
+#endif
+/*
+ * Write buf with one SSL_write and add the bytes written to *got.
+ * Return false if not all of buf was written; *got is then what
+ * kgl_ssl_writev returns (the SSL_write result if nothing was written).
+ */
+static inline bool kgl_ssl_write_once(kssl_session* ssl, const char* buf, int len, int* got)
+{
+	/* callers check SSL_get_error, which a stale queued error would break */
+	ERR_clear_error();
+	int this_len = SSL_write(ssl->ssl, buf, len);
+	if (this_len == len) {
+		*got += len;
+		return true;
+	}
+	if (this_len > 0) {
+		*got += this_len;
+	} else if (*got == 0) {
+		*got = this_len;
+	}
+	return false;
+}
+#endif
+/*
+ * Each SSL_write makes a TLS record and a write() call. HTTP/1 response
+ * headers come as many small iovecs, so writing them one by one sent a dozen
+ * tiny records per response. Copy small iovecs into one buffer first.
+ */
+static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
+{
+#ifdef ENABLE_KSSL_BIO
+	return kgl_ssl_writev_each(ssl, buffer, bc);
+#else
+#ifdef SSL_READ_EARLY_DATA_SUCCESS
+	if (ssl->in_early) {
+		return kgl_ssl_writev_each(ssl, buffer, bc);
+	}
+#endif
+	if (bc <= 1) {
+		return kgl_ssl_writev_each(ssl, buffer, bc);
+	}
+	if (kgl_ssl_coalesce_buf == NULL) {
+		kgl_ssl_coalesce_buf = (char*)malloc(KGL_SSL_COALESCE_SIZE);
+		if (kgl_ssl_coalesce_buf == NULL) {
+			return kgl_ssl_writev_each(ssl, buffer, bc);
+		}
+	}
+	/*
+	 * A retry after SSL_ERROR_WANT_WRITE gets the same iovecs again, so it
+	 * stages the same bytes (or more), which SSL_write accepts as a retry.
+	 */
+	char* staged = kgl_ssl_coalesce_buf;
+	int used = 0;
+	int got = 0;
+	for (int i = 0; i < bc; i++) {
+		const char* hot = (const char*)buffer[i].iov_base;
+		int len = (int)buffer[i].iov_len;
+		if (len <= 0) {
+			continue;
+		}
+		if (used + len <= KGL_SSL_COALESCE_SIZE) {
+			memcpy(staged + used, hot, len);
+			used += len;
+			continue;
+		}
+		if (used > 0) {
+			if (!kgl_ssl_write_once(ssl, staged, used, &got)) {
+				return got;
+			}
+			used = 0;
+		}
+		if (len < KGL_SSL_COALESCE_SIZE) {
+			memcpy(staged, hot, len);
+			used = len;
+			continue;
+		}
+		/* large data goes straight to SSL_write without a copy */
+		if (!kgl_ssl_write_once(ssl, hot, len, &got)) {
+			return got;
+		}
+	}
+	if (used > 0) {
+		kgl_ssl_write_once(ssl, staged, used, &got);
+	}
+	return got;
+#endif
 }
 static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 {

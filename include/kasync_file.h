@@ -83,6 +83,13 @@ INLINE int kasync_file_adjust_result(kasync_file *fp,int got)
 	return KGL_MIN(got,fp->st.direct_io_orig_length);
 }
 bool kasync_file_direct(kasync_file *fp, bool on_flag);
+/*
+ * Read at fp's offset only if the data is already in the page cache.
+ * Return the bytes read, or -1 when the caller must read asynchronously.
+ */
+int kasync_file_read_cached(kasync_file* fp, char* buf, int length);
+/* true once a RWF_NOWAIT read worked, so a failed one means a page cache miss */
+bool kasync_file_nowait_read_supported();
 #else
 INLINE bool kasync_file_direct(kasync_file *fp, bool on_flag) {
 	return true;

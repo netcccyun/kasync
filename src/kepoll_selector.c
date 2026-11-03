@@ -19,6 +19,7 @@
 #include "kmalloc.h"
 #include "kepoll_selector.h"
 #include "kfiber.h"
+#include "kasync_worker.h"
 
 #define MAXEVENT	512
 
@@ -548,6 +549,25 @@ bool epoll_selector_aio_write(kasync_file *file, result_callback result,const ch
 	return true;
 #endif
 }
+#ifndef KF_ASYNC_WORKER
+extern kasync_worker* kasync_buffered_read_worker;
+/*
+ * Linux native aio only reads O_DIRECT files asynchronously; for a buffered
+ * file io_submit blocks. Read buffered files that missed the page cache with
+ * pread in a worker thread.
+ */
+static kev_result buffered_read_worker_callback(void* data, int msec)
+{
+	kasync_file* file = (kasync_file*)data;
+	struct iocb* iocb = &file->iocb;
+	ssize_t ret = pread(iocb->aio_fildes, (void*)(uintptr_t)iocb->aio_buf, (size_t)iocb->aio_nbytes, (off_t)iocb->aio_offset);
+	if (ret < 0) {
+		ret = -errno;
+	}
+	kgl_selector_module.next(file->st.base.selector, file->st.data, result_aio_sync, file, (int)ret);
+	return kev_ok;
+}
+#endif
 bool epoll_selector_aio_read(kasync_file *file, result_callback result, char *buf, int length, void *arg)
 {
 	kepoll_selector *es = (kepoll_selector *)file->st.base.selector->ctx;
@@ -580,6 +600,14 @@ bool epoll_selector_aio_read(kasync_file *file, result_callback result, char *bu
 	iocb->aio_buf = (__u64)(uintptr_t)buf;
 	iocb->aio_nbytes = length;
 	iocb->aio_offset = _kasync_file_get_adjust_offset(file);
+	/*
+	 * Only a page cache miss is worth a thread switch. Without RWF_NOWAIT
+	 * (CentOS 7) every read would get one, so use io_submit as before.
+	 */
+	if (!file->st.direct_io && kasync_buffered_read_worker && kasync_file_nowait_read_supported()) {
+		kasync_worker_start(kasync_buffered_read_worker, file, buffered_read_worker_callback);
+		return true;
+	}
 	iocb->aio_flags = IOCB_FLAG_RESFD;
 	iocb->aio_resfd = es->aio_st.st.fd;
 	iocb->aio_data = (__u64)(uintptr_t)file;

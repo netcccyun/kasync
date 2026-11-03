@@ -4,9 +4,65 @@
 #include "kmalloc.h"
 #ifdef LINUX
 #include <mntent.h>
-#include <sys/ioctl.h>  
-#include <linux/fs.h> 
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <errno.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#endif
+#ifdef LINUX_EPOLL
+#include "kasync_worker.h"
+/* Threads doing buffered reads that missed the page cache. */
+#define KASYNC_BUFFERED_READ_WORKER 16
+kasync_worker* kasync_buffered_read_worker = NULL;
+
+#ifndef RWF_NOWAIT
+#define RWF_NOWAIT 0x00000008
+#endif
+#ifndef __NR_preadv2
+#if defined(__x86_64__) && !defined(__ILP32__)
+#define __NR_preadv2 327
+#elif defined(__i386__)
+#define __NR_preadv2 378
+#elif defined(__aarch64__)
+#define __NR_preadv2 286
+#endif
+#endif
+/* 0 unknown, 1 supported, -1 not supported by this kernel or file system */
+static volatile int kasync_nowait_read_state = 0;
+
+int kasync_file_read_cached(kasync_file* fp, char* buf, int length)
+{
+#ifdef __NR_preadv2
+	if (kasync_nowait_read_state < 0 || fp->st.direct_io) {
+		return -1;
+	}
+	struct iovec iov;
+	iov.iov_base = buf;
+	iov.iov_len = (size_t)length;
+	uint64_t offset = (uint64_t)fp->st.offset;
+	unsigned long pos_l = (unsigned long)offset;
+	unsigned long pos_h = (unsigned long)((offset >> (sizeof(long) * 4)) >> (sizeof(long) * 4));
+	long ret = syscall(__NR_preadv2, fp->st.fd, &iov, 1, pos_l, pos_h, RWF_NOWAIT);
+	if (ret >= 0 || errno == EAGAIN) {
+		/* EAGAIN means the flag works but the data is not cached */
+		if (kasync_nowait_read_state == 0) {
+			kasync_nowait_read_state = 1;
+		}
+		return ret >= 0 ? (int)ret : -1;
+	}
+	if (kasync_nowait_read_state == 0 && (errno == ENOSYS || errno == EOPNOTSUPP || errno == EINVAL)) {
+		/* old kernel (CentOS 7 is 3.10) or no RWF_NOWAIT on this file system */
+		kasync_nowait_read_state = -1;
+	}
+#endif
+	return -1;
+}
+bool kasync_file_nowait_read_supported()
+{
+	return kasync_nowait_read_state > 0;
+}
 #endif
 
 #ifdef KF_ASYNC_WORKER
@@ -109,6 +165,11 @@ void init_aio_align_size()
 #endif
 #ifdef KF_ASYNC_WORKER
 	kasync_file_worker_init();
+#endif
+#ifdef LINUX_EPOLL
+	if (kasync_buffered_read_worker == NULL) {
+		kasync_buffered_read_worker = kasync_worker_init(KASYNC_BUFFERED_READ_WORKER, 0);
+	}
 #endif
 	klog(KLOG_ERR, "kgl_aio_align_size=[%d]\n", kgl_aio_align_size);
 }
