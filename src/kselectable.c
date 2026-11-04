@@ -193,7 +193,18 @@ static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 			ERR_clear_error();
 			int this_len = SSL_read(ssl->ssl, hot, len);
 			if (this_len != len) {
-				return this_len > 0 ? got + this_len : (got>0?got:this_len);
+				if (this_len > 0) {
+					return got + this_len;
+				}
+				if (got > 0) {
+					return got;
+				}
+				/* EOF without close_notify may be a truncation, so it is an error
+				 * rather than the end of a close-delimited body. */
+				if (this_len == 0 && SSL_get_error(ssl->ssl, 0) != SSL_ERROR_ZERO_RETURN) {
+					return -1;
+				}
+				return this_len;
 			}
 			got += this_len;
 			break;
@@ -272,7 +283,8 @@ int selectable_recvmsg(kselectable* st)
 	if (c->udp) {
 		memset(c->udp, 0, sizeof(kudp_extend));
 		msg.msg_control = c->udp->pktinfo;
-		msg.msg_controllen = sizeof(c->udp->pktinfo);
+		/* pkt6info is the larger member: an IPv6 address would not fit in pktinfo */
+		msg.msg_controllen = sizeof(c->udp->pkt6info);
 	}
 	return recvmsg(st->fd, &msg, 0);
 }
