@@ -38,6 +38,8 @@
 
 #define STF_FIBER       (1<<14)
 #define STF_AIO_FILE    (1<<15)
+/* the connection only waits for its next request: it may be closed to free a connection */
+#define STF_IDLE        (1<<16)
 
 #define STF_REVENT      (STF_READ)
 #define STF_WEVENT      (STF_WRITE|STF_RDHUP)
@@ -189,6 +191,20 @@ INLINE int selectable_shutdown(kselectable* st) {
 }
 INLINE void selectable_clear_flags(kselectable* st, uint16_t flags) {
 	KBIT_CLR(st->base.st_flags, flags);
+}
+/* Mark a connection that only waits for its next request, so it can be
+ * closed when connections or file descriptors run out. Selector thread only. */
+INLINE void selectable_set_idle(kselectable* st, bool idle) {
+	if (idle == (KBIT_TEST(st->base.st_flags, STF_IDLE) > 0)) {
+		return;
+	}
+	if (idle) {
+		KBIT_SET(st->base.st_flags, STF_IDLE);
+		st->base.selector->idle_count++;
+	} else {
+		KBIT_CLR(st->base.st_flags, STF_IDLE);
+		st->base.selector->idle_count--;
+	}
 }
 INLINE void selectable_bind(kselectable* st, kselector* selector) {
 	kgl_selector_module.bind(selector, st);

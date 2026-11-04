@@ -22,6 +22,8 @@ typedef struct {
 
 #ifndef KGL_IOCP
 #define KSERVER_ACCEPT_RETRY_MSEC 100
+/* idle connections closed at once when out of descriptors (as nginx does) */
+#define KSERVER_IDLE_CLOSE_COUNT 32
 static kev_result kserver_accept_retry(KOPAQUE data, void *arg, int got)
 {
 	kserver_selectable *ss = (kserver_selectable *)arg;
@@ -62,9 +64,11 @@ kev_result kselector_event_accept(KOPAQUE data, void *arg,int got)
 			}
 		} else if (err == EMFILE || err == ENFILE || err == ENOBUFS || err == ENOMEM) {
 			/* keep STF_RREADY: backlog connections will not trigger a new edge event. */
+			/* idle keep-alive connections give back their descriptors before the retry */
+			int closed = (err == EMFILE || err == ENFILE) ? kselector_manager_close_idle(KSERVER_IDLE_CLOSE_COUNT) : 0;
 			if (ss->accept_error_log_sec != kgl_current_sec) {
 				ss->accept_error_log_sec = kgl_current_sec;
-				klog(KLOG_ERR, "accept failed errno=%d %s, retry after %dms\n", err, strerror(err), KSERVER_ACCEPT_RETRY_MSEC);
+				klog(KLOG_ERR, "accept failed errno=%d %s, closed %d idle connections, retry after %dms\n", err, strerror(err), closed, KSERVER_ACCEPT_RETRY_MSEC);
 			}
 			if (kselector_add_timer(ss->st.base.selector, kserver_accept_retry, ss, KSERVER_ACCEPT_RETRY_MSEC, data) == 0) {
 				return kev_ok;

@@ -122,6 +122,10 @@ struct kselector_s
 	volatile pthread_t thread_id;
 	/* next tick to run while kselector_check_timeout walks the tick list */
 	kgl_list* tick_next;
+	/* when kselector_close_idle last found none of the counted idle connections */
+	int64_t idle_empty_msec;
+	/* connections marked STF_IDLE on this selector */
+	int idle_count;
 };
 kselector* kselector_new(kselector_tick* tick);
 void kselector_destroy(kselector* selector);
@@ -132,6 +136,10 @@ INLINE bool kselector_is_same_thread(kselector* selector) {
 }
 void kselector_update_time();
 int kselector_check_timeout(kselector* selector, int event_number);
+/* Close idle (STF_IDLE) connections of this selector, oldest first: an eighth
+ * of them, at least one and at most max, as nginx does.
+ * Runs on the selector's thread; returns how many were closed. */
+int kselector_close_idle(kselector* selector, int max);
 int kselector_add_timer(kselector* selector, result_callback result, void* arg, int msec, KOPAQUE data);
 void kselector_adjust_time(kselector* selector, int64_t diff_time);
 void kselector_default_bind(kselector* selector, kselectable* st);

@@ -148,6 +148,34 @@ void kselector_update_time()
 	kgl_current_msec = (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
 	return;
 }
+/* after a scan finds nothing, wait this long before scanning again */
+#define KSELECTOR_IDLE_RESCAN_MSEC 100
+int kselector_close_idle(kselector* selector, int max)
+{
+	kassert(kgl_get_tls_selector() == selector);
+	if (selector->idle_count <= 0) {
+		return 0;
+	}
+	/* idle connections whose read is not armed yet are not in the list */
+	if (selector->idle_empty_msec > 0 && kgl_current_msec - selector->idle_empty_msec < KSELECTOR_IDLE_RESCAN_MSEC) {
+		return 0;
+	}
+	int want = KGL_MAX(1, KGL_MIN(max, selector->idle_count / 8));
+	int closed = 0;
+	/* connections waiting for a read are in the RW list, oldest first */
+	kgl_list* head = &selector->list[KGL_LIST_RW];
+	for (kgl_list* l = head->next; l != head && closed < want; l = l->next) {
+		kselectable* st = kgl_list_data(l, kselectable, base.queue);
+		if (KBIT_TEST(st->base.st_flags, STF_IDLE)) {
+			selectable_set_idle(st, false);
+			/* the pending read then ends and its owner closes the connection */
+			selectable_shutdown(st);
+			closed++;
+		}
+	}
+	selector->idle_empty_msec = closed > 0 ? 0 : kgl_current_msec;
+	return closed;
+}
 int kselector_check_timeout(kselector *selector,int event_number)
 {
 	kgl_list* tick_list;

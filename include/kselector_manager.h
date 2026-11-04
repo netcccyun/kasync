@@ -20,6 +20,10 @@ void selector_manager_set_timeout(int connect_tmo_sec,int rw_tmo_sec);
 void selector_manager_adjust_time(int64_t diff_time);
 kselector *get_perfect_selector();
 kselector *get_selector_by_index(int index);
+/* Close idle keep-alive connections to free connections or file descriptors.
+ * The current selector closes some (see kselector_close_idle) and returns that count; if it
+ * has none, the other selectors are asked to do the same and 0 is returned. */
+int kselector_manager_close_idle(int max);
 void kselector_step_init(int index);
 int kselector_step(int index);
 void kselector_step_exit(int index);

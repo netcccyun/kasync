@@ -336,6 +336,34 @@ bool is_selector_manager_init()
 {
 	return kgl_selectors != NULL;
 }
+static kev_result kselector_close_idle_event(KOPAQUE data, void* arg, int got)
+{
+	kselector_close_idle((kselector*)arg, got);
+	return kev_ok;
+}
+int kselector_manager_close_idle(int max)
+{
+	/* when no thread has idle connections, ask the others at most this often */
+	static volatile int64_t last_ask_msec = 0;
+	kselector* current = kgl_get_tls_selector();
+	if (current != NULL) {
+		int closed = kselector_close_idle(current, max);
+		if (closed > 0) {
+			return closed;
+		}
+	}
+	if (kgl_current_msec - last_ask_msec < 100) {
+		return 0;
+	}
+	last_ask_msec = kgl_current_msec;
+	for (int i = 0; i < kgl_selector_count; i++) {
+		kselector* selector = kgl_selectors[i];
+		if (selector != NULL && selector != current) {
+			kgl_selector_module.next(selector, NULL, kselector_close_idle_event, selector, max);
+		}
+	}
+	return 0;
+}
 kselector *get_selector_by_index(int index)
 {
 	return kgl_selectors[index & kgl_selector_hash];
