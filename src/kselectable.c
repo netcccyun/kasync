@@ -62,9 +62,12 @@ static inline int kgl_ssl_writev_each(kssl_session* ssl, WSABUF* buffer, int bc)
 	}
 	return got;
 }
-#ifndef ENABLE_KSSL_BIO
 /* one TLS record holds at most 16KB of plaintext */
 #define KGL_SSL_COALESCE_SIZE 16384
+#ifdef ENABLE_KSSL_BIO
+/* the memory BIO keeps the ciphertext of one write until it is sent */
+#define KGL_SSL_BIO_WRITE_LIMIT 65536
+#endif
 #ifdef _WIN32
 static __declspec(thread) char* kgl_ssl_coalesce_buf = NULL;
 #else
@@ -91,17 +94,15 @@ static inline bool kgl_ssl_write_once(kssl_session* ssl, const char* buf, int le
 	}
 	return false;
 }
-#endif
 /*
  * Each SSL_write makes a TLS record and a write() call. HTTP/1 response
  * headers come as many small iovecs, so writing them one by one sent a dozen
  * tiny records per response. Copy small iovecs into one buffer first.
+ * The memory BIO (Windows IOCP) needs the same: there every SSL_write is a
+ * record too, even though the records leave in one WSASend.
  */
 static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 {
-#ifdef ENABLE_KSSL_BIO
-	return kgl_ssl_writev_each(ssl, buffer, bc);
-#else
 #ifdef SSL_READ_EARLY_DATA_SUCCESS
 	if (ssl->in_early) {
 		return kgl_ssl_writev_each(ssl, buffer, bc);
@@ -129,6 +130,14 @@ static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 		if (len <= 0) {
 			continue;
 		}
+#ifdef ENABLE_KSSL_BIO
+		/* write at most the limit; the caller sends the rest next time */
+		int left = KGL_SSL_BIO_WRITE_LIMIT - got - used;
+		if (left <= 0) {
+			break;
+		}
+		len = KGL_MIN(len, left);
+#endif
 		if (used + len <= KGL_SSL_COALESCE_SIZE) {
 			memcpy(staged + used, hot, len);
 			used += len;
@@ -154,7 +163,6 @@ static inline int kgl_ssl_writev(kssl_session* ssl, WSABUF* buffer, int bc)
 		kgl_ssl_write_once(ssl, staged, used, &got);
 	}
 	return got;
-#endif
 }
 static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 {
