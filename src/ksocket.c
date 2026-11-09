@@ -15,6 +15,7 @@ LPFN_TRANSMITFILE lpfnTransmitFile = NULL;
 RIO_EXTENSION_FUNCTION_TABLE kgl_rio;
 #else
 #include <poll.h>
+#include <arpa/inet.h>
 #endif
 
 #ifndef SUN_LEN
@@ -102,6 +103,24 @@ bool ksocket_ipaddr_ip(const ip_addr* ia, char* ip, int ip_len) {
 	return ksocket_sockaddr_ip(&a, ip, ip_len);
 }
 bool ksocket_get_ipaddr(const char* host, ip_addr* ip) {
+	/* Plain IPv4/IPv6 text is parsed directly: getaddrinfo allocates a
+	 * result list on every call. Other numeric forms it accepts (127.1,
+	 * octal parts, %scope) still go through getaddrinfo below. */
+	memset(ip, 0, sizeof(*ip));
+#ifdef KSOCKET_IPV6
+	if (inet_pton(AF_INET, host, &ip->addr32[0]) == 1) {
+		ip->sin_family = PF_INET;
+		return true;
+	}
+	if (inet_pton(AF_INET6, host, ip->addr8) == 1) {
+		ip->sin_family = PF_INET6;
+		return true;
+	}
+#else
+	if (inet_pton(AF_INET, host, ip) == 1) {
+		return true;
+	}
+#endif
 	sockaddr_i addr;
 	if (!ksocket_getaddr(host, 0, AF_UNSPEC, AI_NUMERICHOST, &addr)) {
 		return false;
