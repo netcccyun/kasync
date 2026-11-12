@@ -48,6 +48,8 @@ typedef struct
 	uint16_t handshake : 1;
 	uint16_t shutdown : 1;
 	uint16_t alt_svc_sent : 1;
+	/* the peer closed TCP without close_notify; reads report it as an error */
+	uint16_t eof_without_notify : 1;
 } kssl_session;
 
 bool kgl_ssl_support_sendfile(kssl_session *ssl);

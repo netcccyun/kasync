@@ -210,8 +210,15 @@ static inline int kgl_ssl_readv(kssl_session* ssl, kgl_iovec* buffer, int bc)
 				/* EOF without close_notify may be a truncation, so it is an error
 				 * rather than the end of a close-delimited body. */
 				if (this_len == 0 && SSL_get_error(ssl->ssl, 0) != SSL_ERROR_ZERO_RETURN) {
+					ssl->eof_without_notify = 1;
 					return -1;
 				}
+#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
+				/* OpenSSL 3 reports the same EOF as an SSL error */
+				if (this_len < 0 && ERR_GET_REASON(ERR_peek_error()) == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
+					ssl->eof_without_notify = 1;
+				}
+#endif
 				return this_len;
 			}
 			got += this_len;
